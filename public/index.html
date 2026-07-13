@@ -767,17 +767,14 @@
 
         .review-item.correct-review {
             border-color: var(--review-correct-border);
-            background: var(--review-correct-bg);
         }
 
         .review-item.wrong-review {
             border-color: var(--review-wrong-border);
-            background: var(--review-wrong-bg);
         }
 
         .review-item.skipped-review {
             border-color: var(--review-skipped-border);
-            background: var(--review-skipped-bg);
         }
 
         .review-item h3 {
@@ -818,14 +815,14 @@
         }
 
         .review-option.correct-answer {
-            background: var(--review-correct-bg);
+            background: linear-gradient(var(--review-correct-bg), var(--review-correct-bg)), var(--input-bg);
             border-color: var(--review-correct-border);
             box-shadow: 0 0 0 3px rgba(20, 185, 143, 0.20), 0 14px 28px rgba(20, 185, 143, 0.12);
             color: var(--review-correct-text);
         }
 
         .review-option.user-answer.wrong-answer {
-            background: var(--review-wrong-bg);
+            background: linear-gradient(var(--review-wrong-bg), var(--review-wrong-bg)), var(--input-bg);
             border-color: var(--review-wrong-border);
             box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.20), 0 14px 28px rgba(239, 68, 68, 0.10);
             color: var(--review-wrong-text);
@@ -939,7 +936,7 @@
         }
 
         .option.correct-answer {
-            background: var(--review-correct-bg);
+            background: linear-gradient(var(--review-correct-bg), var(--review-correct-bg)), var(--input-bg);
             border-color: var(--review-correct-border);
             box-shadow: 0 0 0 3px rgba(20, 185, 143, 0.20), 0 14px 28px rgba(20, 185, 143, 0.12);
             color: var(--review-correct-text);
@@ -947,7 +944,7 @@
         }
 
         .option.user-answer.wrong-answer {
-            background: var(--review-wrong-bg);
+            background: linear-gradient(var(--review-wrong-bg), var(--review-wrong-bg)), var(--input-bg);
             border-color: var(--review-wrong-border);
             box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.20), 0 14px 28px rgba(239, 68, 68, 0.10);
             color: var(--review-wrong-text);
@@ -2392,7 +2389,6 @@
                     if (isCorrectAnswer) {
                         score++;
                         card.style.borderColor = 'var(--correct)';
-                        card.style.backgroundColor = isExtreme ? '#064e3b' : '#ecfdf5';
                         markAnswerOptions(card, selectedOption.value, q.correctAnswer);
                     } else {
                         currentWrongAnswers.push({
@@ -2404,7 +2400,6 @@
                             options: q.options
                         });
                         card.style.borderColor = 'var(--wrong)';
-                        card.style.backgroundColor = isExtreme ? '#450a0a' : '#fef2f2';
                         card.innerHTML += `
                             <div style="margin-top: 10px; font-size: 0.95rem; color: var(--text-muted);"><em><strong>Explanation:</strong> ${q.explanation}</em></div>
                         `;
@@ -2420,7 +2415,6 @@
                         options: q.options
                     });
                     card.style.borderColor = '#f59e0b';
-                    card.style.backgroundColor = isExtreme ? '#451a03' : '#fffbeb';
                     card.innerHTML += `
                         <div style="margin-top: 10px; font-size: 0.95rem; color: var(--text-muted);"><em><strong>Explanation:</strong> ${q.explanation}</em></div>
                     `;
