@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 
 const User = require('./models/User');
 const QuizAttempt = require('./models/QuizAttempt');
+const SavedQuestion = require('./models/SavedQuestion');
 
 function loadEnvFile() {
     const envPath = path.join(__dirname, '.env');
@@ -152,6 +153,105 @@ app.delete('/api/history', requireAuth, async (req, res) => {
     }
 });
 
+app.delete('/api/history/:id', requireAuth, async (req, res) => {
+    try {
+        const deletedAttempt = await QuizAttempt.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
+        if (!deletedAttempt) {
+            return res.status(404).json({ error: 'Attempt not found or not authorized' });
+        }
+        res.json({ message: 'Entry deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete entry' });
+    }
+});
+
+app.get('/api/leaderboard', async (req, res) => {
+    try {
+        const pipeline = [
+            {
+                $group: {
+                    _id: '$userId',
+                    totalScore: { $sum: '$score' },
+                    totalQuestions: { $sum: '$totalQuestions' },
+                    quizzesTaken: { $sum: 1 }
+                }
+            },
+            {
+                $lookup: {
+                    from: 'users',
+                    localField: '_id',
+                    foreignField: '_id',
+                    as: 'user'
+                }
+            },
+            { $unwind: '$user' },
+            {
+                $project: {
+                    name: '$user.name',
+                    totalScore: 1,
+                    totalQuestions: 1,
+                    quizzesTaken: 1,
+                    percentage: {
+                        $cond: [
+                            { $gt: ['$totalQuestions', 0] },
+                            { $round: [{ $multiply: [{ $divide: ['$totalScore', '$totalQuestions'] }, 100] }, 0] },
+                            0
+                        ]
+                    }
+                }
+            },
+            { $sort: { totalScore: -1 } },
+            { $limit: 50 }
+        ];
+        
+        const leaderboard = await QuizAttempt.aggregate(pipeline);
+        res.json(leaderboard);
+    } catch (err) {
+        console.error('Leaderboard error:', err);
+        res.status(500).json({ error: 'Failed to fetch leaderboard' });
+    }
+});
+
+// --- Saved Questions Routes ---
+
+app.post('/api/saved-questions', requireAuth, async (req, res) => {
+    try {
+        const { question, options, correctAnswer, explanation } = req.body;
+        const saved = new SavedQuestion({
+            userId: req.user.userId,
+            question, 
+            options, 
+            correctAnswer, 
+            explanation
+        });
+        await saved.save();
+        res.status(201).json(saved);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to save question' });
+    }
+});
+
+app.get('/api/saved-questions', requireAuth, async (req, res) => {
+    try {
+        const saved = await SavedQuestion.find({ userId: req.user.userId }).sort({ createdAt: -1 });
+        res.json(saved);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch saved questions' });
+    }
+});
+
+app.delete('/api/saved-questions/:id', requireAuth, async (req, res) => {
+    try {
+        const deleted = await SavedQuestion.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
+        if (!deleted) {
+            return res.status(404).json({ error: 'Not found' });
+        }
+        res.json({ message: 'Deleted' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete' });
+    }
+});
+
 async function callGemini(apiKey, prompt, mimeType = 'application/json') {
     const ai = new GoogleGenAI({ apiKey });
     let lastError = null;
@@ -177,11 +277,22 @@ async function callGemini(apiKey, prompt, mimeType = 'application/json') {
                 continue;
             }
             
+            // If error is a rate limit or quota error, throw a clean message
+            if (error.message && (error.message.includes('quota') || error.message.includes('429'))) {
+                throw new Error('Rate limit exceeded. Please wait a few moments and try again.');
+            }
             // For 404 or any other error, throw immediately
             throw error;
         }
     }
 
+    if (lastError && lastError.message && (lastError.message.includes('quota') || lastError.message.includes('429'))) {
+        throw new Error('Rate limit exceeded. Please wait a few moments and try again.');
+    }
+    if (lastError && (lastError.status === 429 || lastError.code === 429)) {
+        throw new Error('Rate limit exceeded. Please wait a few moments and try again.');
+    }
+    
     throw lastError;
 }
 
@@ -474,4 +585,4 @@ app.post('/api/generate-summary-from-pdf', upload.single('pdfFile'), async (req,
 
 app.listen(PORT, () => {
     console.log(`AI Quiz app running at http://localhost:${PORT}`);
-});
+});     

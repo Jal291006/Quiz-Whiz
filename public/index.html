@@ -664,6 +664,28 @@
             padding: 16px;
             display: grid;
             gap: 10px;
+            position: relative;
+        }
+
+        .history-delete-btn {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .history-delete-btn:hover {
+            color: var(--wrong);
+            background: rgba(239, 68, 68, 0.1);
         }
 
         .history-meta {
@@ -672,6 +694,36 @@
             gap: 14px;
             align-items: center;
             flex-wrap: wrap;
+            padding-right: 32px;
+        }
+
+        .dashboard-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .dashboard-tab {
+            padding: 10px 20px;
+            border-radius: 999px;
+            font-weight: 600;
+            cursor: pointer;
+            border: 1px solid var(--option-border);
+            background: var(--card-bg);
+            color: var(--text-muted);
+            transition: all 0.2s ease;
+        }
+
+        .dashboard-tab:hover {
+            border-color: var(--primary);
+            color: var(--primary);
+        }
+
+        .dashboard-tab.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+            box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
         }
 
         .history-title {
@@ -1292,9 +1344,28 @@
             </div>
 
 
-            <h3 style="margin-top: 0; color: var(--text-main); font-size: 1.2rem; margin-bottom: 15px;">Recent History</h3>
-            <div class="history-list" id="history-list">
-                <div class="history-empty">No quiz attempts yet. Finish a quiz and your history will appear here.</div>
+            <div class="dashboard-tabs">
+                <button class="dashboard-tab active" id="tab-history" onclick="switchDashboardTab('history')">My History</button>
+                <button class="dashboard-tab" id="tab-leaderboard" onclick="switchDashboardTab('leaderboard')">Global Leaderboard</button>
+                <button class="dashboard-tab" id="tab-saved" onclick="switchDashboardTab('saved')">Saved Questions</button>
+            </div>
+
+            <div id="history-view">
+                <div class="history-list" id="history-list">
+                    <div class="history-empty">No quiz attempts yet. Finish a quiz and your history will appear here.</div>
+                </div>
+            </div>
+
+            <div id="leaderboard-view" style="display:none;">
+                <div class="history-list" id="leaderboard-list">
+                    <div class="history-empty">Loading leaderboard...</div>
+                </div>
+            </div>
+
+            <div id="saved-view" style="display:none;">
+                <div class="history-list" id="saved-list">
+                    <div class="history-empty">Loading saved questions...</div>
+                </div>
             </div>
         </section>
 
@@ -1318,7 +1389,6 @@
                     <option value="geography">Geography</option>
                     <option value="video games">Video Games</option>
                     <option value="movies">Movies</option>
-                    <option value="a completely random educational topic">Surprise Me!</option>
                 </select>
             </div>
 
@@ -1608,6 +1678,167 @@
             }
         }
 
+        async function deleteHistoryEntry(id) {
+            const token = getAuthToken();
+            if (!token) return;
+
+            if (!confirm('Are you sure you want to delete this quiz attempt?')) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/history/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+
+                if (response.ok) {
+                    await renderHistoryDashboard();
+                } else {
+                    alert('Failed to delete history entry.');
+                }
+            } catch (e) {
+                console.error('Failed to delete entry', e);
+                alert('Failed to delete history entry.');
+            }
+        }
+
+        function switchDashboardTab(tab) {
+            document.getElementById('tab-history').classList.remove('active');
+            document.getElementById('tab-leaderboard').classList.remove('active');
+            document.getElementById('tab-saved').classList.remove('active');
+            
+            document.getElementById('history-view').style.display = 'none';
+            document.getElementById('leaderboard-view').style.display = 'none';
+            document.getElementById('saved-view').style.display = 'none';
+
+            if (tab === 'history') {
+                document.getElementById('tab-history').classList.add('active');
+                document.getElementById('history-view').style.display = 'block';
+            } else if (tab === 'leaderboard') {
+                document.getElementById('tab-leaderboard').classList.add('active');
+                document.getElementById('leaderboard-view').style.display = 'block';
+                renderLeaderboard();
+            } else if (tab === 'saved') {
+                document.getElementById('tab-saved').classList.add('active');
+                document.getElementById('saved-view').style.display = 'block';
+                renderSavedQuestions();
+            }
+        }
+
+        async function fetchSavedQuestions() {
+            try {
+                const token = getAuthToken();
+                const response = await fetch('/api/saved-questions', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (!response.ok) return [];
+                return await response.json();
+            } catch (e) {
+                console.error('Failed to fetch saved questions', e);
+                return [];
+            }
+        }
+
+        async function deleteSavedQuestion(id) {
+            const token = getAuthToken();
+            if (!confirm('Remove this saved question?')) return;
+            try {
+                const res = await fetch(`/api/saved-questions/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                if (res.ok) {
+                    await renderSavedQuestions();
+                } else {
+                    alert('Failed to remove saved question.');
+                }
+            } catch (e) {
+                alert('Failed to remove saved question.');
+            }
+        }
+
+        async function renderSavedQuestions() {
+            const list = document.getElementById('saved-list');
+            list.innerHTML = '<div class="history-empty">Loading saved questions...</div>';
+            
+            const saved = await fetchSavedQuestions();
+            
+            if (!saved || saved.length === 0) {
+                list.innerHTML = '<div class="history-empty">No saved questions yet. When you miss a question during a quiz, you can save it to review here!</div>';
+                return;
+            }
+
+            list.innerHTML = saved.map(entry => {
+                const dateStr = formatQuizDate(entry.createdAt);
+                return `
+                    <div class="history-item">
+                        <button class="history-delete-btn" onclick="deleteSavedQuestion('${entry._id}')" title="Remove">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                        </button>
+                        <div class="history-meta" style="padding-right: 32px;">
+                            <span class="history-title" style="white-space: normal; line-height: 1.4;">${escapeHtml(entry.question)}</span>
+                            <span class="history-date">${dateStr}</span>
+                        </div>
+                        <div class="history-tags" style="margin-top: 10px;">
+                            <span class="history-tag" style="color: var(--correct); font-weight: bold; border-color: var(--review-correct-border);">Correct Answer: ${escapeHtml(entry.correctAnswer)}</span>
+                        </div>
+                        ${entry.explanation ? `<div style="margin-top:10px; font-size: 0.9rem; color: var(--text-muted); background: rgba(255,255,255,0.03); padding: 12px; border-radius: 8px;"><strong>Explanation:</strong> ${escapeHtml(entry.explanation)}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function fetchLeaderboard() {
+            try {
+                const response = await fetch('/api/leaderboard');
+                if (!response.ok) return [];
+                return await response.json();
+            } catch (e) {
+                console.error('Failed to fetch leaderboard', e);
+                return [];
+            }
+        }
+
+        async function renderLeaderboard() {
+            const list = document.getElementById('leaderboard-list');
+            list.innerHTML = '<div class="history-empty">Loading leaderboard...</div>';
+            
+            const leaderboard = await fetchLeaderboard();
+            
+            if (!leaderboard || leaderboard.length === 0) {
+                list.innerHTML = '<div class="history-empty">No one has taken any quizzes yet. Be the first!</div>';
+                return;
+            }
+
+            list.innerHTML = leaderboard.map((entry, index) => {
+                let rankTrophy = '';
+                if (index === 0) rankTrophy = '🏆';
+                else if (index === 1) rankTrophy = '🥈';
+                else if (index === 2) rankTrophy = '🥉';
+                else rankTrophy = `#${index + 1}`;
+
+                return `
+                    <div class="history-item">
+                        <div class="history-meta" style="padding-right: 0;">
+                            <span class="history-title" style="font-size: 1.1rem;">
+                                <span style="display:inline-block; width: 30px; font-weight: 800; color: var(--primary);">${rankTrophy}</span> 
+                                ${entry.name || 'Anonymous'}
+                            </span>
+                            <span class="history-score" style="font-size: 1.1rem; font-weight: 800;">
+                                ${entry.percentage}%
+                            </span>
+                        </div>
+                        <div class="history-tags">
+                            <span class="history-tag">Total Score: ${entry.totalScore}</span>
+                            <span class="history-tag">${entry.totalQuestions} Questions Answered</span>
+                            <span class="history-tag">${entry.quizzesTaken} Quizzes Taken</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
         function formatQuizDate(isoDate) {
             return new Date(isoDate).toLocaleString('en-IN', {
                 dateStyle: 'medium',
@@ -1677,6 +1908,9 @@
                 const dateStr = formatQuizDate(entry.createdAt || entry.completedAt);
                 return `
                     <div class="history-item">
+                        <button class="history-delete-btn" onclick="deleteHistoryEntry('${entry._id}')" title="Delete quiz">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
+                        </button>
                         <div class="history-meta">
                             <span class="history-title">${entry.categoryLabel || 'Quiz'}</span>
                             <span class="history-date">${dateStr}</span>
@@ -2050,15 +2284,7 @@
         }
 
         function getLocalQuestions(category, amount, type, difficulty) {
-            let allQuestions = [];
-
-            if (category === 'a completely random educational topic') {
-                Object.values(questionBank).forEach((categoryArray) => {
-                    allQuestions = allQuestions.concat(categoryArray);
-                });
-            } else {
-                allQuestions = questionBank[category] || [];
-            }
+            let allQuestions = questionBank[category] || [];
 
             const filteredQuestions = type === 'true or false'
                 ? allQuestions.filter((q) => q.difficulty === 'true/false')
@@ -2129,9 +2355,14 @@
             }
 
             reviewList.innerHTML = currentReviewAnswers
-                .map((entry) => `
+                .map((entry, index) => `
                     <article class="review-item ${entry.status}-review">
-                        <h3>${entry.index + 1}. ${escapeHtml(entry.question)}</h3>
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 12px;">
+                            <h3 style="margin: 0; line-height: 1.4;">${index + 1}. ${escapeHtml(entry.question)}</h3>
+                            ${(entry.status === 'wrong' || entry.status === 'skipped') ? 
+                                `<button class="dashboard-tab" id="save-btn-${index}" onclick="saveQuestion(${index})" style="padding: 4px 12px; font-size: 0.85rem; flex-shrink: 0;">🔖 Save</button>` 
+                                : ''}
+                        </div>
                         <div class="review-options">
                             ${entry.options.map((option) => {
                                 const isUserAnswer = entry.userAnswer === option;
@@ -2162,6 +2393,47 @@
                     </article>
                 `)
                 .join('');
+        }
+
+        async function saveQuestion(index) {
+            const token = getAuthToken();
+            const btn = document.getElementById(`save-btn-${index}`);
+            if (!token || !btn) return;
+            
+            const entry = currentReviewAnswers[index];
+            const data = {
+                question: entry.question,
+                options: entry.options,
+                correctAnswer: entry.correctAnswer,
+                explanation: entry.explanation
+            };
+
+            btn.disabled = true;
+            btn.innerHTML = 'Saving...';
+
+            try {
+                const res = await fetch('/api/saved-questions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(data)
+                });
+                
+                if (res.ok) {
+                    btn.innerHTML = 'Saved ✓';
+                    btn.style.color = 'var(--correct)';
+                    btn.style.borderColor = 'var(--correct)';
+                } else {
+                    btn.innerHTML = 'Error';
+                    btn.disabled = false;
+                }
+            } catch (err) {
+                console.error(err);
+                btn.innerHTML = 'Error';
+                btn.disabled = false;
+            }
         }
 
         function startTimer(totalSeconds) {
