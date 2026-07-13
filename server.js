@@ -143,6 +143,15 @@ app.get('/api/history', requireAuth, async (req, res) => {
     }
 });
 
+app.delete('/api/history', requireAuth, async (req, res) => {
+    try {
+        await QuizAttempt.deleteMany({ userId: req.user.userId });
+        res.json({ message: 'History cleared successfully' });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to clear history' });
+    }
+});
+
 async function callGemini(apiKey, prompt, mimeType = 'application/json') {
     const ai = new GoogleGenAI({ apiKey });
     let lastError = null;
