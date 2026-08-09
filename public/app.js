@@ -1360,3 +1360,23 @@
         setAuthMode('login');
         updateQuizSourceUI();
         updateAuthUI();
+
+        // --- Anti-Cheat System ---
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && document.body.classList.contains('quiz-active')) {
+                // User switched tabs while quiz is active
+                handleCheating();
+            }
+        });
+
+        function handleCheating() {
+            // Auto-submit the quiz
+            calculateScore();
+            // Show the warning overlay
+            document.getElementById('anti-cheat-overlay').style.display = 'flex';
+        }
+
+        function dismissCheatWarning() {
+            document.getElementById('anti-cheat-overlay').style.display = 'none';
+            closeQuizPage();
+        }
