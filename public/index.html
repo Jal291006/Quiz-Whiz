@@ -92,7 +92,6 @@
                 </div>
             </div>
 
-
             <div class="dashboard-tabs">
                 <button class="dashboard-tab active" id="tab-history" onclick="switchDashboardTab('history')">My History</button>
                 <button class="dashboard-tab" id="tab-leaderboard" onclick="switchDashboardTab('leaderboard')">Global Leaderboard</button>
@@ -126,7 +125,6 @@
                 <select id="quiz-source">
                     <option value="local" selected>Predefined Questions</option>
                     <option value="gemini">Generate with Gemini API</option>
-                    <option value="pdf">Upload PDF</option>
                 </select>
             </div>
 
@@ -144,23 +142,6 @@
             <div class="field-group" id="custom-topic-field" style="display:none;">
                 <label for="custom-topic">Custom Topic for Gemini</label>
                 <input id="custom-topic" type="text" placeholder="Example: Indian history,cricket,coding, football">
-            </div>
-
-            <div class="pdf-upload-zone" id="pdf-upload-zone">
-                <div class="pdf-dropzone" id="pdf-dropzone">
-                    <span class="pdf-dropzone-icon">📄</span>
-                    <div class="pdf-dropzone-text">Drop your PDF here or click to browse</div>
-                    <div class="pdf-dropzone-hint">Supports PDF files up to 10MB</div>
-                    <input type="file" id="pdf-file-input" accept=".pdf,application/pdf" style="display:none;">
-                </div>
-                <div class="pdf-file-info" id="pdf-file-info">
-                    <span class="pdf-file-icon">📎</span>
-                    <div class="pdf-file-details">
-                        <div class="pdf-file-name" id="pdf-file-name">—</div>
-                        <div class="pdf-file-size" id="pdf-file-size">—</div>
-                    </div>
-                    <button class="pdf-file-remove" type="button" id="pdf-file-remove">Remove</button>
-                </div>
             </div>
 
             <div class="field-group">

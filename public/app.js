@@ -33,90 +33,18 @@
             return document.getElementById('quiz-source').value;
         }
 
-        let selectedPdfFile = null;
-
         function updateQuizSourceUI() {
             const source = getQuizSource();
             const customTopicField = document.getElementById('custom-topic-field');
             const categoryField = document.getElementById('category');
             const difficultyField = document.getElementById('difficulty');
-            const pdfUploadZone = document.getElementById('pdf-upload-zone');
-            const categoryFieldGroup = categoryField.closest('.field-group');
 
             customTopicField.style.display = source === 'gemini' ? 'grid' : 'none';
-            pdfUploadZone.style.display = source === 'pdf' ? 'grid' : 'none';
-            categoryFieldGroup.style.display = source === 'pdf' ? 'none' : 'grid';
             categoryField.disabled = false;
             difficultyField.disabled = false;
         }
 
-        function formatFileSize(bytes) {
-            if (bytes < 1024) return bytes + ' B';
-            if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
-            return (bytes / 1048576).toFixed(1) + ' MB';
-        }
-
-        function handlePdfFileSelect(file) {
-            if (!file) return;
-
-            if (file.type !== 'application/pdf') {
-                alert('Please select a PDF file.');
-                return;
-            }
-
-            if (file.size > 10 * 1024 * 1024) {
-                alert('File is too large. Maximum size is 10MB.');
-                return;
-            }
-
-            selectedPdfFile = file;
-            document.getElementById('pdf-file-name').textContent = file.name;
-            document.getElementById('pdf-file-size').textContent = formatFileSize(file.size);
-            document.getElementById('pdf-file-info').style.display = 'flex';
-            document.getElementById('pdf-dropzone').style.display = 'none';
-        }
-
-        function clearPdfFile() {
-            selectedPdfFile = null;
-            document.getElementById('pdf-file-input').value = '';
-            document.getElementById('pdf-file-info').style.display = 'none';
-            document.getElementById('pdf-dropzone').style.display = 'block';
-        }
-
-        (function initPdfUpload() {
-            const dropzone = document.getElementById('pdf-dropzone');
-            const fileInput = document.getElementById('pdf-file-input');
-            const removeBtn = document.getElementById('pdf-file-remove');
-
-            dropzone.addEventListener('click', () => fileInput.click());
-
-            fileInput.addEventListener('change', (e) => {
-                if (e.target.files && e.target.files[0]) {
-                    handlePdfFileSelect(e.target.files[0]);
-                }
-            });
-
-            dropzone.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                dropzone.classList.add('drag-over');
-            });
-
-            dropzone.addEventListener('dragleave', (e) => {
-                e.preventDefault();
-                dropzone.classList.remove('drag-over');
-            });
-
-            dropzone.addEventListener('drop', (e) => {
-                e.preventDefault();
-                dropzone.classList.remove('drag-over');
-                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-                    handlePdfFileSelect(e.dataTransfer.files[0]);
-                }
-            });
-
-            removeBtn.addEventListener('click', clearPdfFile);
-        })();
-               const TOKEN_STORAGE_KEY = 'quiz_auth_token';
+        const TOKEN_STORAGE_KEY = 'quiz_auth_token';
         const USER_STORAGE_KEY = 'quiz_auth_user';
 
         function setSession(token, user) {
@@ -802,27 +730,6 @@
             return normalizeGeneratedQuestions(payload.questions || [], type);
         }
 
-        async function getPdfQuestions(file, amount, type, difficulty) {
-            const formData = new FormData();
-            formData.append('pdfFile', file);
-            formData.append('amount', amount);
-            formData.append('type', type);
-            formData.append('difficulty', difficulty);
-
-            const response = await fetch('/api/generate-quiz-from-pdf', {
-                method: 'POST',
-                body: formData
-            });
-
-            const payload = await response.json();
-
-            if (!response.ok) {
-                throw new Error(payload.error || 'PDF quiz generation failed.');
-            }
-
-            return normalizeGeneratedQuestions(payload.questions || [], type);
-        }
-
         function escapeHtml(value) {
             return String(value)
                 .replace(/&/g, '&amp;')
@@ -997,22 +904,11 @@
             summaryBtn.disabled = true;
 
             try {
-                if (source === 'pdf') {
-                    if (!selectedPdfFile) {
-                        alert('Please upload a PDF file to generate a summary.');
-                        return;
-                    }
-                    const formData = new FormData();
-                    formData.append('pdfFile', selectedPdfFile);
-                    url = '/api/generate-summary-from-pdf';
-                    options.body = formData;
-                } else {
-                    const category = document.getElementById('category').value;
-                    const customTopic = document.getElementById('custom-topic').value;
-                    let topic = source === 'gemini' ? (customTopic || 'general knowledge') : category;
-                    options.headers = { 'Content-Type': 'application/json' };
-                    options.body = JSON.stringify({ topic });
-                }
+                const category = document.getElementById('category').value;
+                const customTopic = document.getElementById('custom-topic').value;
+                let topic = source === 'gemini' ? (customTopic || 'general knowledge') : category;
+                options.headers = { 'Content-Type': 'application/json' };
+                options.body = JSON.stringify({ topic });
 
                 const response = await fetch(url, options);
                 const data = await response.text();
@@ -1059,14 +955,7 @@
                 : document.getElementById('difficulty').selectedOptions[0].textContent;
             let topic, topicLabel;
 
-            if (source === 'pdf') {
-                if (!selectedPdfFile) {
-                    alert('Please select a PDF file first.');
-                    return;
-                }
-                topic = selectedPdfFile.name.replace(/\.pdf$/i, '');
-                topicLabel = '📄 ' + selectedPdfFile.name;
-            } else if (source === 'gemini' && customTopic) {
+            if (source === 'gemini' && customTopic) {
                 topic = customTopic;
                 topicLabel = customTopic;
             } else {
@@ -1091,9 +980,7 @@
             try {
                 let questions = [];
 
-                if (source === 'pdf') {
-                    questions = await getPdfQuestions(selectedPdfFile, amount, type, difficulty);
-                } else if (source === 'gemini') {
+                if (source === 'gemini') {
                     questions = await getGeminiQuestions(topic, amount, type, difficulty);
                 } else {
                     questions = getLocalQuestions(category, amount, type, difficulty);
