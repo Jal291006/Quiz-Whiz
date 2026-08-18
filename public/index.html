@@ -16,7 +16,7 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <script src="/socket.io/socket.io.js"></script>
     <script src="questions.js"></script>
-    <link rel="stylesheet" href="styles.css?v=7">
+    <link rel="stylesheet" href="styles.css?v=8">
 </head>
 <body>
     <section class="auth-screen">
@@ -71,7 +71,7 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
         <section class="hero">
             <span class="hero-kicker">AI & Live Quiz Engine</span>
             <h1>QuizWizz</h1>
-            <p>Pick a topic, set the difficulty, or host a 400-player live event room with instant speed.</p>
+            <p>Pick a topic, set the difficulty, or host a live multiplayer event room with instant speed.</p>
         </section>
 
         <!-- Live Multiplayer Room Card -->
@@ -81,7 +81,7 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
                     <span class="hero-kicker">Real-Time Event Engine</span>
                     <h2 style="margin: 4px 0 0 0; font-size: 1.4rem; color: var(--text-main);">🎮 Live Multiplayer Rooms</h2>
                 </div>
-                <span class="badge-high-capacity">High Capacity (300–400 Players)</span>
+
             </div>
             <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 16px;">
                 Host a live quiz for your classroom or join an active room with a 6-digit code.
@@ -270,19 +270,22 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
                 </div>
             </div>
         </section>
+    </main>
 
-        <!-- MULTIPLAYER ROOM SECTIONS -->
-        <section class="multiplayer-page" id="multiplayer-page" style="display:none;">
-            <!-- HOST ROOM FORM (Dedicated Hosting Page) -->
+    <!-- MULTIPLAYER ROOM - Full Page Overlay (outside main) -->
+    <section class="multiplayer-page" id="multiplayer-page">
+        <div class="mp-page-inner">
+
+            <!-- HOST ROOM FORM -->
             <div id="room-host-form" class="room-card-shell" style="display:none;">
                 <div class="quiz-page-header" style="margin-bottom: 24px;">
                     <div class="quiz-page-nav">
-                        <button class="back-home-btn" type="button" onclick="closeMultiplayerRoom()">Back to Dashboard</button>
+                        <button class="back-home-btn" type="button" onclick="closeMultiplayerRoom()">← Back to Dashboard</button>
                         <span class="hero-kicker">Host Event</span>
                     </div>
                     <div>
                         <h2 class="quiz-page-title">Host a Live Multiplayer Room</h2>
-                        <p class="quiz-page-subtitle">Configure room settings and launch an instant live quiz for up to 400 players.</p>
+                        <p class="quiz-page-subtitle">Configure room settings and launch an instant live quiz.</p>
                     </div>
                 </div>
 
@@ -322,23 +325,23 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
                 </div>
             </div>
 
-            <!-- JOIN ROOM FORM (Dedicated Join Room Page) -->
+            <!-- JOIN ROOM FORM -->
             <div id="room-join-form" class="room-card-shell" style="display:none;">
                 <div class="quiz-page-header" style="margin-bottom: 24px;">
                     <div class="quiz-page-nav">
-                        <button class="back-home-btn" type="button" onclick="closeMultiplayerRoom()">Back to Dashboard</button>
+                        <button class="back-home-btn" type="button" onclick="closeMultiplayerRoom()">← Back to Dashboard</button>
                         <span class="hero-kicker">Join Room</span>
                     </div>
                     <div>
                         <h2 class="quiz-page-title">Join Live Quiz with Code</h2>
-                        <p class="quiz-page-subtitle">Enter your 6-digit room code and nickname to join the live room immediately.</p>
+                        <p class="quiz-page-subtitle">Enter your 6-digit room code and nickname to join immediately.</p>
                     </div>
                 </div>
 
                 <div style="max-width: 480px; margin: 0 auto; text-align: left;">
                     <div class="field-group">
                         <label for="join-code">6-Digit Room Code</label>
-                        <input id="join-code" type="text" placeholder="e.g. 582910" maxlength="6" style="font-size: 1.5rem; letter-spacing: 4px; text-transform: uppercase; text-align: center; font-weight: 700; font-family: monospace;">
+                        <input id="join-code" type="text" placeholder="e.g. 582910" maxlength="6" style="font-size: 1.5rem; letter-spacing: 4px; text-align: center; font-weight: 700; font-family: monospace;">
                     </div>
                     <div class="field-group">
                         <label for="join-nickname">Your Nickname</label>
@@ -357,14 +360,12 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
                 <div class="room-header">
                     <span class="hero-kicker">Room Host Controls</span>
                     <h2>Room Code: <span id="room-code-display" class="highlight-code">------</span></h2>
-                    <p>Share this 6-digit code with your students/players to join!</p>
+                    <p>Share this 6-digit code with your players to join!</p>
                 </div>
                 <div class="lobby-player-counter">
                     <span id="lobby-count-badge">0 Players Connected</span>
                 </div>
-                <div class="lobby-player-grid" id="lobby-player-list">
-                    <!-- Dynamic player chips -->
-                </div>
+                <div class="lobby-player-grid" id="lobby-player-list"></div>
                 <div style="margin-top: 24px;">
                     <button type="button" class="auth-submit" id="start-room-btn" onclick="startHostRoomQuiz()">🚀 Start Live Quiz Now</button>
                     <button type="button" class="back-home-btn" style="margin-top: 10px;" onclick="closeMultiplayerRoom()">Cancel Room</button>
@@ -385,7 +386,7 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
                 <button type="button" class="back-home-btn" style="margin-top: 24px;" onclick="closeMultiplayerRoom()">Leave Room</button>
             </div>
 
-            <!-- Dedicated Live Room Active Question View -->
+            <!-- Live Question View -->
             <div id="room-live-question" class="mp-live-question-shell" style="display:none;">
                 <div class="mp-live-nav">
                     <button class="back-home-btn" type="button" onclick="closeMultiplayerRoom()">← Exit Room</button>
@@ -407,22 +408,17 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
                     </div>
 
                     <h2 id="room-question-text" class="mp-question-title">Question text goes here...</h2>
-
                     <div id="room-options-container" class="mp-options-grid"></div>
-
-                    <div id="room-answer-status" class="mp-answer-status">
-                        Select your answer above!
-                    </div>
+                    <div id="room-answer-status" class="mp-answer-status">Select your answer above!</div>
                 </div>
             </div>
 
-            <!-- Dedicated Live Room Intermission Leaderboard View -->
+            <!-- Intermission View -->
             <div id="room-intermission" class="mp-live-question-shell" style="display:none;">
                 <div class="mp-intermission-card">
                     <span class="hero-kicker">Round Ended</span>
                     <h2 class="mp-intermission-title">Correct Answer: <span id="intermission-correct-ans" class="mp-correct-highlight">--</span></h2>
                     <p id="intermission-explanation" class="mp-explanation-text"></p>
-                    
                     <h3 class="mp-standings-heading">Top Standings</h3>
                     <div id="room-standings-list" class="standings-list"></div>
                     <div class="mp-next-loader">
@@ -431,22 +427,20 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
                 </div>
             </div>
 
-            <!-- Dedicated Live Room Game Over Podium View -->
+            <!-- Game Over View -->
             <div id="room-game-over" class="mp-live-question-shell" style="display:none;">
                 <div class="mp-gameover-card">
                     <span class="hero-kicker">Final Results</span>
                     <h2 class="mp-gameover-title">🏆 Quiz Completed!</h2>
-                    
                     <div id="podium-container" class="podium-grid"></div>
-                    
                     <h3 class="mp-standings-heading">Full Ranking</h3>
                     <div id="final-rankings-list" class="standings-list"></div>
-                    
                     <button type="button" class="auth-submit" style="margin-top: 28px; width: 100%; max-width: 320px;" onclick="closeMultiplayerRoom()">Back to Dashboard</button>
                 </div>
             </div>
-        </section>
-    </main>
+
+        </div>
+    </section>
 
     <div id="anti-cheat-overlay" class="anti-cheat-overlay" style="display:none;">
         <div class="anti-cheat-card">
@@ -457,6 +451,6 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
         </div>
     </div>
 
-    <script src="app.js?v=7"></script>
+    <script src="app.js?v=8"></script>
 </body>
 </html>

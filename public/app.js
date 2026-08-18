@@ -1382,20 +1382,13 @@
             document.body.classList.remove('quiz-active', 'review-active', 'summary-active');
             document.body.classList.add('multiplayer-active');
             const mpPage = document.getElementById('multiplayer-page');
-            if (mpPage) mpPage.style.display = 'block';
-            
+            if (mpPage) {
+                mpPage.scrollTop = 0;
+            }
+
             ['room-host-lobby', 'room-player-waiting', 'room-live-question', 'room-intermission', 'room-game-over', 'room-host-form', 'room-join-form'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = id === viewId ? 'block' : 'none';
-            });
-
-            requestAnimationFrame(() => {
-                const target = document.getElementById(viewId) || mpPage;
-                if (target) {
-                    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                } else {
-                    window.scrollTo(0, 0);
-                }
             });
         }
 

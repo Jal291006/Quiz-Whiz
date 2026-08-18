@@ -1678,15 +1678,41 @@ body.multiplayer-active .summary-page {
     display: none !important;
 }
 
+/* Hide the entire main page-shell when multiplayer is active */
+body.multiplayer-active > main.page-shell {
+    display: none !important;
+}
+
 body.multiplayer-active .multiplayer-page {
     display: block !important;
 }
 
-/* Multi-Player Dedicated Focus View & UI Layout */
-body.multiplayer-active .page-shell {
+/* Multiplayer page sits outside main as a full-screen page */
+.multiplayer-page {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-main);
+    z-index: 900;
+    overflow-y: auto;
+    padding: 0;
+}
+
+body.multiplayer-active .multiplayer-page {
+    display: block !important;
+}
+
+/* Inner wrapper for centered content inside multiplayer page */
+.mp-page-inner {
     max-width: 900px;
     margin: 0 auto;
-    padding: 20px 16px;
+    padding: 24px 16px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
 }
 
 .mp-live-question-shell {
