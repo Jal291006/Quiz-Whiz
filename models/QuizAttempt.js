@@ -18,4 +18,7 @@ const quizAttemptSchema = new mongoose.Schema({
     percentage: Number
 }, { timestamps: true });
 
+quizAttemptSchema.index({ userId: 1, createdAt: 1 });
+quizAttemptSchema.index({ score: -1 });
+
 module.exports = mongoose.model('QuizAttempt', quizAttemptSchema);

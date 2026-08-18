@@ -23,4 +23,6 @@ const savedQuestionSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
+savedQuestionSchema.index({ userId: 1, createdAt: -1 });
+
 module.exports = mongoose.model('SavedQuestion', savedQuestionSchema);
