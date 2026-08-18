@@ -1192,6 +1192,50 @@
             }
         });
 
+        async function handleGuestLogin(event) {
+            if (event && typeof event.preventDefault === 'function') {
+                event.preventDefault();
+            }
+            const guestBtn = document.getElementById('guest-login-btn');
+            const originalBtnText = guestBtn ? guestBtn.textContent : '⚡ Play as Guest (Instant Access)';
+            if (guestBtn) {
+                guestBtn.textContent = 'Please wait...';
+                guestBtn.disabled = true;
+            }
+
+            try {
+                const nameInput = document.getElementById('name');
+                const name = nameInput ? nameInput.value.trim() : '';
+                const res = await fetch('/api/auth/guest', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await res.json();
+                
+                if (!res.ok) throw new Error(data.error || 'Guest login failed');
+
+                setSession(data.token, data.user);
+                setAuthMessage('Logged in as Guest!', 'success');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } catch (err) {
+                console.error('Guest login error:', err);
+                setAuthMessage(err.message || 'Guest login failed', 'error');
+            } finally {
+                if (guestBtn) {
+                    guestBtn.textContent = originalBtnText;
+                    guestBtn.disabled = false;
+                }
+            }
+        }
+
+        window.handleGuestLogin = handleGuestLogin;
+
+        const guestBtn = document.getElementById('guest-login-btn');
+        if (guestBtn) {
+            guestBtn.addEventListener('click', handleGuestLogin);
+        }
+
         document.getElementById('logout-btn').addEventListener('click', logout);
 
         const themeToggleBtn = document.getElementById('theme-toggle-btn');
@@ -1597,3 +1641,4 @@
         window.submitJoinRoom = submitJoinRoom;
         window.startHostRoomQuiz = startHostRoomQuiz;
         window.closeMultiplayerRoom = closeMultiplayerRoom;
+        window.handleGuestLogin = handleGuestLogin;
