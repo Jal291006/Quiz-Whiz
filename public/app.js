@@ -1197,7 +1197,13 @@
                 event.preventDefault();
             }
             const guestBtn = document.getElementById('guest-login-btn');
-            const originalBtnText = guestBtn ? guestBtn.textContent : '⚡ Play as Guest (Instant Access)';
+            if (guestBtn && guestBtn.disabled) return;
+
+            const defaultText = '⚡ Play as Guest (Instant Access)';
+            const originalBtnText = (guestBtn && guestBtn.textContent && !guestBtn.textContent.includes('Please wait'))
+                ? guestBtn.textContent
+                : defaultText;
+
             if (guestBtn) {
                 guestBtn.textContent = 'Please wait...';
                 guestBtn.disabled = true;
