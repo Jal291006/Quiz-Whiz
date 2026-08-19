@@ -1322,7 +1322,7 @@
         // 🎮 MULTIPLAYER ROOM CLIENT LOGIC (SOCKET.IO)
         // ============================================================================
 
-        const socket = typeof io !== 'undefined' ? io() : null;
+        const socket = typeof io !== 'undefined' ? io({ transports: ['websocket'], upgrade: false }) : null;
         let activeRoomState = null;
         let roomTimerInterval = null;
 

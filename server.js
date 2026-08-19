@@ -83,16 +83,17 @@ const requireAuth = (req, res, next) => {
 
 // --- Auth Routes ---
 
+const crypto = require('crypto');
 // Guest Login (Sub-millisecond auth for instant access & live rooms)
 app.post('/api/auth/guest', (req, res) => {
     try {
         const { name } = req.body || {};
         let guestName = (name && typeof name === 'string' && name.trim()) ? name.trim().slice(0, 20) : '';
         if (!guestName) {
-            guestName = 'Guest_' + Math.floor(1000 + Math.random() * 9000);
+            guestName = 'Guest_' + crypto.randomInt(100000, 999999).toString();
         }
 
-        const guestId = 'guest_' + Date.now().toString(36) + Math.random().toString(36).substring(2, 6);
+        const guestId = 'guest_' + crypto.randomUUID();
         const token = jwt.sign(
             { userId: guestId, email: null, name: guestName, isGuest: true },
             process.env.JWT_SECRET || 'fallback_secret',
