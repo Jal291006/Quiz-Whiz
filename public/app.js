@@ -1209,29 +1209,52 @@
                 guestBtn.disabled = true;
             }
 
-            try {
-                const nameInput = document.getElementById('name');
-                const name = nameInput ? nameInput.value.trim() : '';
-                const res = await fetch('/api/auth/guest', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name })
-                });
-                const data = await res.json();
-                
-                if (!res.ok) throw new Error(data.error || 'Guest login failed');
+            const maxRetries = 3;
+            let lastError = null;
 
-                setSession(data.token, data.user);
-                setAuthMessage('Logged in as Guest!', 'success');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            } catch (err) {
-                console.error('Guest login error:', err);
-                setAuthMessage(err.message || 'Guest login failed', 'error');
-            } finally {
-                if (guestBtn) {
-                    guestBtn.textContent = originalBtnText;
-                    guestBtn.disabled = false;
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                try {
+                    const nameInput = document.getElementById('name');
+                    const name = nameInput ? nameInput.value.trim() : '';
+
+                    // 10-second timeout per attempt to avoid hanging forever on slow servers
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+                    const res = await fetch('/api/auth/guest', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ name }),
+                        signal: controller.signal
+                    });
+                    clearTimeout(timeoutId);
+
+                    const data = await res.json();
+
+                    if (!res.ok) throw new Error(data.error || 'Guest login failed');
+
+                    setSession(data.token, data.user);
+                    setAuthMessage('Logged in as Guest!', 'success');
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                    return; // Success — exit the retry loop
+                } catch (err) {
+                    lastError = err;
+                    console.warn(`Guest login attempt ${attempt}/${maxRetries} failed:`, err.message);
+                    if (attempt < maxRetries) {
+                        // Wait before retrying (500ms, 1500ms)
+                        if (guestBtn) guestBtn.textContent = `Retrying... (${attempt}/${maxRetries})`;
+                        await new Promise(r => setTimeout(r, attempt * 1000));
+                    }
                 }
+            }
+
+            // All retries failed
+            console.error('Guest login error after retries:', lastError);
+            setAuthMessage(lastError?.message || 'Guest login failed. Please try again.', 'error');
+
+            if (guestBtn) {
+                guestBtn.textContent = originalBtnText;
+                guestBtn.disabled = false;
             }
         }
 
@@ -1322,9 +1345,21 @@
         // 🎮 MULTIPLAYER ROOM CLIENT LOGIC (SOCKET.IO)
         // ============================================================================
 
-        const socket = typeof io !== 'undefined' ? io({ transports: ['websocket'], upgrade: false }) : null;
+        let socket = null;
         let activeRoomState = null;
         let roomTimerInterval = null;
+
+        // Lazy socket connection — only connects when multiplayer is actually needed.
+        // This prevents 300 idle WebSocket connections from overwhelming the server
+        // when users are just logging in as guest.
+        function getOrCreateSocket() {
+            if (socket && socket.connected) return socket;
+            if (typeof io === 'undefined') return null;
+
+            socket = io({ transports: ['websocket'], upgrade: false });
+            setupSocketListeners();
+            return socket;
+        }
 
         function openHostModal() {
             showMultiplayerShellView('room-host-form');
@@ -1350,7 +1385,8 @@
         }
 
         function submitCreateRoom() {
-            if (!socket) {
+            const sock = getOrCreateSocket();
+            if (!sock) {
                 alert('Socket connection unavailable.');
                 return;
             }
@@ -1380,7 +1416,8 @@
         }
 
         function submitJoinRoom() {
-            if (!socket) {
+            const sock = getOrCreateSocket();
+            if (!sock) {
                 alert('Socket connection unavailable.');
                 return;
             }
@@ -1416,6 +1453,11 @@
             if (roomTimerInterval) clearInterval(roomTimerInterval);
             if (socket && activeRoomState) {
                 socket.emit('leave_room');
+            }
+            // Disconnect socket to free server resources
+            if (socket) {
+                socket.disconnect();
+                socket = null;
             }
             document.body.classList.remove('multiplayer-active');
             const mpPage = document.getElementById('multiplayer-page');
@@ -1453,7 +1495,8 @@
         }
 
         // --- Socket Listeners ---
-        if (socket) {
+        function setupSocketListeners() {
+            if (!socket) return;
             socket.on('room_created', (data) => {
                 activeRoomState = { roomCode: data.roomCode, isHost: true };
                 const codeDisp = document.getElementById('room-code-display');

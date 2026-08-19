@@ -45,7 +45,12 @@ loadEnvFile();
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-    cors: { origin: '*' }
+    cors: { origin: '*' },
+    // Performance tuning for 300+ concurrent players on limited resources
+    pingInterval: 60000,    // Ping every 60s instead of default 25s (reduces CPU overhead)
+    pingTimeout: 30000,     // 30s timeout (generous for slow connections)
+    maxHttpBufferSize: 1e5, // 100KB max message (quiz data is small)
+    transports: ['websocket'] // Skip HTTP long-polling entirely on server side too
 });
 
 const PORT = process.env.PORT || 3000;
