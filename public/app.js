@@ -1461,7 +1461,8 @@
             }
             document.body.classList.remove('multiplayer-active');
             const mpPage = document.getElementById('multiplayer-page');
-            if (mpPage) mpPage.style.display = 'none';
+            // Remove inline style so CSS class rules control visibility again
+            if (mpPage) mpPage.style.removeProperty('display');
             ['room-host-lobby', 'room-player-waiting', 'room-live-question', 'room-intermission', 'room-game-over', 'room-host-form', 'room-join-form'].forEach(id => {
                 const el = document.getElementById(id);
                 if (el) el.style.display = 'none';
@@ -1475,6 +1476,7 @@
             document.body.classList.add('multiplayer-active');
             const mpPage = document.getElementById('multiplayer-page');
             if (mpPage) {
+                mpPage.style.removeProperty('display'); // Clear any inline override
                 mpPage.scrollTop = 0;
             }
 
