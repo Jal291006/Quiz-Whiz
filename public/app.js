@@ -84,6 +84,10 @@
                 const response = await fetch('/api/history', {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
+                if (response.status === 401) {
+                    logout();
+                    return [];
+                }
                 if (!response.ok) return [];
                 return await response.json();
             } catch (e) {
@@ -487,7 +491,7 @@
             };
 
             try {
-                await fetch('/api/history', {
+                const response = await fetch('/api/history', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -495,6 +499,14 @@
                     },
                     body: JSON.stringify(entry)
                 });
+                if (response.status === 401) {
+                    logout();
+                    return;
+                }
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    console.error('Failed to store quiz attempt:', err);
+                }
                 await renderHistoryDashboard();
             } catch (e) {
                 console.error('Failed to store attempt', e);
@@ -555,6 +567,7 @@
             }
 
             window.scrollTo({ top: 0, behavior: 'smooth' });
+            renderHistoryDashboard();
         }
 
         function resetQuizUI(keepQuizPageState = false) {
@@ -994,7 +1007,7 @@
             }
         }
 
-        function calculateScore() {
+        async function calculateScore() {
             clearInterval(timerInterval);
 
             if (currentQuizData.length === 0) {
@@ -1084,7 +1097,7 @@
 
             submitBtn.style.display = 'none';
             updateProgressBar(currentQuizData.length, currentQuizData.length);
-            storeQuizAttempt(score, currentQuizData.length, answeredQuestions);
+            await storeQuizAttempt(score, currentQuizData.length, answeredQuestions);
             document.getElementById('review-wrong-btn').addEventListener('click', openReviewPage);
         }
 
@@ -1341,355 +1354,4 @@
             closeQuizPage();
         }
 
-        // ============================================================================
-        // 🎮 MULTIPLAYER ROOM CLIENT LOGIC (SOCKET.IO)
-        // ============================================================================
-
-        let socket = null;
-        let activeRoomState = null;
-        let roomTimerInterval = null;
-
-        // Lazy socket connection — only connects when multiplayer is actually needed.
-        // This prevents 300 idle WebSocket connections from overwhelming the server
-        // when users are just logging in as guest.
-        function getOrCreateSocket() {
-            if (socket && socket.connected) return socket;
-            if (typeof io === 'undefined') return null;
-
-            socket = io({ transports: ['websocket'], upgrade: false });
-            setupSocketListeners();
-            return socket;
-        }
-
-        function openHostModal() {
-            showMultiplayerShellView('room-host-form');
-        }
-
-        function closeHostModal() {
-            closeMultiplayerRoom();
-        }
-
-        function openJoinModal() {
-            showMultiplayerShellView('room-join-form');
-            const err = document.getElementById('join-error-msg');
-            if (err) err.style.display = 'none';
-            const codeInput = document.getElementById('join-code');
-            if (codeInput) {
-                codeInput.value = '';
-                setTimeout(() => codeInput.focus(), 100);
-            }
-        }
-
-        function closeJoinModal() {
-            closeMultiplayerRoom();
-        }
-
-        function submitCreateRoom() {
-            const sock = getOrCreateSocket();
-            if (!sock) {
-                alert('Socket connection unavailable.');
-                return;
-            }
-            const topic = document.getElementById('host-topic').value;
-            const amount = Number(document.getElementById('host-amount').value);
-            const timePerQuestion = Number(document.getElementById('host-timer').value);
-
-            // Fetch questions from questionBank locally or generate fallback
-            let questions = [];
-            if (typeof questionBank !== 'undefined' && questionBank[topic]) {
-                questions = questionBank[topic].slice(0, amount);
-            } else if (typeof questionBank !== 'undefined') {
-                const keys = Object.keys(questionBank);
-                if (keys.length > 0) questions = questionBank[keys[0]].slice(0, amount);
-            }
-
-            if (questions.length === 0) {
-                alert('No predefined questions found for this topic.');
-                return;
-            }
-
-            socket.emit('create_room', {
-                title: `${topic.toUpperCase()} Live Quiz`,
-                questions,
-                timePerQuestion
-            });
-        }
-
-        function submitJoinRoom() {
-            const sock = getOrCreateSocket();
-            if (!sock) {
-                alert('Socket connection unavailable.');
-                return;
-            }
-            const codeInput = document.getElementById('join-code').value.replace(/\D/g, '').trim();
-            const nicknameInput = document.getElementById('join-nickname').value.trim();
-
-            if (!codeInput || codeInput.length !== 6) {
-                const err = document.getElementById('join-error-msg');
-                if (err) {
-                    err.textContent = 'Please enter a valid 6-digit room code.';
-                    err.style.display = 'block';
-                }
-                return;
-            }
-
-            const currentUser = typeof getSession === 'function' ? getSession() : null;
-            const defaultName = currentUser ? currentUser.name : '';
-            const finalNickname = nicknameInput || defaultName || 'Player_' + Math.floor(100 + Math.random() * 900);
-
-            socket.emit('join_room', {
-                roomCode: codeInput,
-                nickname: finalNickname
-            });
-        }
-
-        function startHostRoomQuiz() {
-            if (socket) {
-                socket.emit('start_room_quiz');
-            }
-        }
-
-        function closeMultiplayerRoom() {
-            if (roomTimerInterval) clearInterval(roomTimerInterval);
-            if (socket && activeRoomState) {
-                socket.emit('leave_room');
-            }
-            // Disconnect socket to free server resources
-            if (socket) {
-                socket.disconnect();
-                socket = null;
-            }
-            document.body.classList.remove('multiplayer-active');
-            const mpPage = document.getElementById('multiplayer-page');
-            // Remove inline style so CSS class rules control visibility again
-            if (mpPage) mpPage.style.removeProperty('display');
-            ['room-host-lobby', 'room-player-waiting', 'room-live-question', 'room-intermission', 'room-game-over', 'room-host-form', 'room-join-form'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.style.display = 'none';
-            });
-            activeRoomState = null;
-            window.scrollTo(0, 0);
-        }
-
-        function showMultiplayerShellView(viewId) {
-            document.body.classList.remove('quiz-active', 'review-active', 'summary-active');
-            document.body.classList.add('multiplayer-active');
-            const mpPage = document.getElementById('multiplayer-page');
-            if (mpPage) {
-                mpPage.style.removeProperty('display'); // Clear any inline override
-                mpPage.scrollTop = 0;
-            }
-
-            ['room-host-lobby', 'room-player-waiting', 'room-live-question', 'room-intermission', 'room-game-over', 'room-host-form', 'room-join-form'].forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.style.display = id === viewId ? 'block' : 'none';
-            });
-        }
-
-        function escapeRoomHtml(value) {
-            return String(value ?? '').replace(/[&<>"']/g, (char) => ({
-                '&': '&amp;',
-                '<': '&lt;',
-                '>': '&gt;',
-                '"': '&quot;',
-                "'": '&#39;'
-            }[char]));
-        }
-
-        // --- Socket Listeners ---
-        function setupSocketListeners() {
-            if (!socket) return;
-            socket.on('room_created', (data) => {
-                activeRoomState = { roomCode: data.roomCode, isHost: true };
-                const codeDisp = document.getElementById('room-code-display');
-                if (codeDisp) codeDisp.textContent = data.roomCode;
-                const countBadge = document.getElementById('lobby-count-badge');
-                if (countBadge) countBadge.textContent = '1 Player Connected';
-                const playerList = document.getElementById('lobby-player-list');
-                if (playerList) playerList.innerHTML = '<span class="player-chip">👑 Host</span>';
-                showMultiplayerShellView('room-host-lobby');
-            });
-
-            socket.on('room_joined', (data) => {
-                activeRoomState = { roomCode: data.roomCode, isHost: false, nickname: data.nickname };
-                const joinForm = document.getElementById('room-join-form');
-                if (joinForm) joinForm.style.display = 'none';
-                const pCodeDisp = document.getElementById('player-room-code-display');
-                if (pCodeDisp) pCodeDisp.textContent = data.roomCode;
-                const pCountBadge = document.getElementById('player-lobby-count-badge');
-                if (pCountBadge) pCountBadge.textContent = `${data.playerCount} Players in Lobby`;
-                showMultiplayerShellView('room-player-waiting');
-            });
-
-            socket.on('lobby_update', (data) => {
-                const playerChips = data.players.map(p => `<span class="player-chip">👤 ${p}</span>`).join('');
-                if (activeRoomState && activeRoomState.isHost) {
-                    const countBadge = document.getElementById('lobby-count-badge');
-                    if (countBadge) countBadge.textContent = `${data.playerCount} Players Connected`;
-                    const playerList = document.getElementById('lobby-player-list');
-                    if (playerList) playerList.innerHTML = playerChips;
-                } else {
-                    const pCountBadge = document.getElementById('player-lobby-count-badge');
-                    if (pCountBadge) pCountBadge.textContent = `${data.playerCount} Players in Lobby`;
-                    const pWaitList = document.getElementById('player-waiting-list');
-                    if (pWaitList) pWaitList.innerHTML = playerChips;
-                }
-            });
-
-            socket.on('question_start', (data) => {
-                showMultiplayerShellView('room-live-question');
-                const qProgress = document.getElementById('room-q-progress');
-                if (qProgress) qProgress.textContent = `Question ${data.questionIndex + 1} / ${data.totalQuestions}`;
-                
-                const qProgressBar = document.getElementById('room-q-progress-bar');
-                if (qProgressBar) {
-                    const pct = Math.round(((data.questionIndex + 1) / data.totalQuestions) * 100);
-                    qProgressBar.style.width = `${pct}%`;
-                }
-
-                const qText = document.getElementById('room-question-text');
-                if (qText) qText.textContent = data.question;
-
-                const optionsContainer = document.getElementById('room-options-container');
-                if (optionsContainer) {
-                    optionsContainer.innerHTML = '';
-                    data.options.forEach((opt, idx) => {
-                        const btn = document.createElement('button');
-                        btn.className = 'mp-opt-card';
-                        btn.innerHTML = `<span class="mp-opt-badge">${String.fromCharCode(65 + idx)}</span> <span>${escapeRoomHtml(opt)}</span>`;
-                        btn.onclick = () => submitRoomOptAnswer(btn, opt, data.timePerQuestion, data.startTime);
-                        optionsContainer.appendChild(btn);
-                    });
-                }
-
-                const ansStatus = document.getElementById('room-answer-status');
-                if (ansStatus) {
-                    ansStatus.textContent = 'Select your answer above!';
-                    ansStatus.style.color = 'var(--text-muted)';
-                }
-
-                // Synced timer countdown
-                if (roomTimerInterval) clearInterval(roomTimerInterval);
-                let secondsLeft = data.timePerQuestion;
-                const timerBadge = document.getElementById('room-timer-badge');
-                if (timerBadge) {
-                    timerBadge.textContent = `${secondsLeft}s`;
-                    timerBadge.classList.remove('timer-warning', 'timer-danger');
-                }
-
-                let autoSubmitted = false;
-                roomTimerInterval = setInterval(() => {
-                    secondsLeft -= 1;
-                    if (secondsLeft >= 0) {
-                        if (timerBadge) {
-                            timerBadge.textContent = `${secondsLeft}s`;
-                            if (secondsLeft <= 5) {
-                                timerBadge.classList.add('timer-danger');
-                            } else if (secondsLeft <= 10) {
-                                timerBadge.classList.add('timer-warning');
-                            }
-                        }
-                    } else {
-                        clearInterval(roomTimerInterval);
-                        if (!autoSubmitted) {
-                            autoSubmitted = true;
-                            submitRoomOptAnswer(null, null, data.timePerQuestion, data.startTime);
-                        }
-                    }
-                }, 1000);
-            });
-
-            function submitRoomOptAnswer(selectedBtn, selectedOpt, totalTime, startTime) {
-                if (!activeRoomState) return;
-
-                // Disable all buttons in container
-                const allBtns = document.querySelectorAll('.mp-opt-card, .room-opt-btn');
-                allBtns.forEach(b => {
-                    b.disabled = true;
-                    b.style.opacity = '0.6';
-                });
-
-                if (selectedBtn) {
-                    selectedBtn.classList.add('selected');
-                    selectedBtn.style.opacity = '1';
-                }
-
-                const elapsedSeconds = startTime ? (Date.now() - startTime) / 1000 : totalTime;
-                socket.emit('submit_room_answer', {
-                    selectedOption: selectedOpt || '',
-                    answerTimeSeconds: elapsedSeconds
-                });
-
-                const ansStatus = document.getElementById('room-answer-status');
-                if (ansStatus) {
-                    ansStatus.textContent = selectedOpt ? '✓ Answer submitted! Waiting for round to finish...' : '⏱️ Time\'s up! Waiting for round to finish...';
-                    ansStatus.style.color = selectedOpt ? 'var(--primary)' : '#f59e0b';
-                }
-            }
-
-            socket.on('question_ended', (data) => {
-                if (roomTimerInterval) clearInterval(roomTimerInterval);
-                showMultiplayerShellView('room-intermission');
-                const corrAns = document.getElementById('intermission-correct-ans');
-                if (corrAns) corrAns.textContent = data.correctAnswer;
-                const expl = document.getElementById('intermission-explanation');
-                if (expl) expl.textContent = data.explanation;
-
-                const standingsEl = document.getElementById('room-standings-list');
-                if (standingsEl) {
-                    standingsEl.innerHTML = data.leaderboard.map((item, idx) => `
-                        <div class="standing-item">
-                            <span>#${idx + 1} ${escapeRoomHtml(item.name)} ${item.streak > 1 ? '🔥 ' + item.streak : ''}</span>
-                            <span>${item.score} pts</span>
-                        </div>
-                    `).join('');
-                }
-            });
-
-            socket.on('room_game_over', (data) => {
-                if (roomTimerInterval) clearInterval(roomTimerInterval);
-                showMultiplayerShellView('room-game-over');
-
-                const podiumEl = document.getElementById('podium-container');
-                if (podiumEl) {
-                    podiumEl.innerHTML = (data.podium || []).map((p, idx) => `
-                        <div class="podium-card">
-                            <div class="podium-rank">${idx === 0 ? '🥇 1st' : idx === 1 ? '🥈 2nd' : '🥉 3rd'}</div>
-                            <div style="font-weight:700; margin-top:6px; color:var(--text-main);">${escapeRoomHtml(p.name)}</div>
-                            <div style="color:var(--primary); font-weight:800; font-size:1.1rem; margin-top:4px;">${p.score} pts</div>
-                        </div>
-                    `).join('');
-                }
-
-                const finalRankingsEl = document.getElementById('final-rankings-list');
-                if (finalRankingsEl) {
-                    finalRankingsEl.innerHTML = (data.leaderboard || []).map((item, idx) => `
-                        <div class="standing-item">
-                            <span>#${idx + 1} ${escapeRoomHtml(item.name)}</span>
-                            <span>${item.score} pts</span>
-                        </div>
-                    `).join('');
-                }
-            });
-
-            socket.on('room_error', (data) => {
-                const joinErr = document.getElementById('join-error-msg');
-                const joinForm = document.getElementById('room-join-form');
-                if (joinErr && joinForm && joinForm.style.display === 'block') {
-                    joinErr.textContent = data.message;
-                    joinErr.style.display = 'block';
-                } else {
-                    alert(data.message || 'Room error occurred');
-                }
-            });
-        }
-
-        window.openHostModal = openHostModal;
-        window.closeHostModal = closeHostModal;
-        window.openJoinModal = openJoinModal;
-        window.closeJoinModal = closeJoinModal;
-        window.submitCreateRoom = submitCreateRoom;
-        window.submitJoinRoom = submitJoinRoom;
-        window.startHostRoomQuiz = startHostRoomQuiz;
-        window.closeMultiplayerRoom = closeMultiplayerRoom;
         window.handleGuestLogin = handleGuestLogin;

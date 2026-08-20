@@ -14,7 +14,6 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
     <link rel="icon" type="image/png" href="favicon.png">
     <link rel="apple-touch-icon" href="favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <script src="/socket.io/socket.io.js"></script>
     <script src="questions.js"></script>
     <link rel="stylesheet" href="styles.css?v=8">
 </head>
@@ -24,7 +23,7 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
             <div class="auth-hero">
                 <span class="auth-kicker">QuizWizz</span>
                 <h2>Login before you play</h2>
-                <p>Save your spot, enter the quiz room, and keep the experience a little more personal.</p>
+                <p>Save your spot and keep track of your quiz scores.</p>
             </div>
             <form class="auth-form" id="auth-form">
                 <div class="auth-tabs">
@@ -52,7 +51,7 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
                 <button class="auth-submit" type="submit" id="auth-submit">Login</button>
 
                 <div style="margin-top: 20px; border-top: 1px dashed var(--option-border); padding-top: 15px; text-align: center;">
-                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px;">Joining a live room or quick test?</p>
+                    <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px;">Want to try a quick quiz?</p>
                     <button class="guest-auth-btn" type="button" id="guest-login-btn">⚡ Play as Guest (Instant Access)</button>
                 </div>
             </form>
@@ -69,28 +68,10 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
         </div>
 
         <section class="hero">
-            <span class="hero-kicker">AI & Live Quiz Engine</span>
+            <span class="hero-kicker">AI Quiz Engine</span>
             <h1>QuizWizz</h1>
-            <p>Pick a topic, set the difficulty, or host a live multiplayer event room with instant speed.</p>
+            <p>Pick a topic, set the difficulty, and test your knowledge.</p>
         </section>
-
-        <!-- Live Multiplayer Room Card -->
-        <div class="multiplayer-card">
-            <div class="multiplayer-card-header">
-                <div>
-                    <span class="hero-kicker">Real-Time Event Engine</span>
-                    <h2 style="margin: 4px 0 0 0; font-size: 1.4rem; color: var(--text-main);">🎮 Live Multiplayer Rooms</h2>
-                </div>
-
-            </div>
-            <p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 16px;">
-                Host a live quiz for your classroom or join an active room with a 6-digit code.
-            </p>
-            <div class="multiplayer-actions">
-                <button type="button" class="btn-host-room" onclick="openHostModal()">Host a Live Room</button>
-                <button type="button" class="btn-join-room" onclick="openJoinModal()">Join with Code</button>
-            </div>
-        </div>
 
         <section class="dashboard">
             <div class="dashboard-head">
@@ -148,7 +129,7 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
         </section>
 
         <div class="controls-container">
-            <h2 class="controls-title">Generate a Solo Quiz</h2>
+            <h2 class="controls-title">Configure Your Quiz</h2>
 
             <div class="field-group">
                 <label for="quiz-source">Question Source</label>
@@ -204,7 +185,7 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
             </div>
 
             <div style="display: flex; gap: 10px; width: 100%; grid-column: 1 / -1;">
-                <button type="button" onclick="fetchQuiz()" style="flex: 1;">Start Solo Quiz</button>
+                <button type="button" onclick="fetchQuiz()" style="flex: 1;">Start Quiz</button>
                 <button type="button" onclick="fetchSummary()" style="flex: 1; background-color: var(--text-main);">Generate Summary</button>
             </div>
         </div>
@@ -272,176 +253,6 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
         </section>
     </main>
 
-    <!-- MULTIPLAYER ROOM - Full Page Overlay (outside main) -->
-    <section class="multiplayer-page" id="multiplayer-page">
-        <div class="mp-page-inner">
-
-            <!-- HOST ROOM FORM -->
-            <div id="room-host-form" class="room-card-shell" style="display:none;">
-                <div class="quiz-page-header" style="margin-bottom: 24px;">
-                    <div class="quiz-page-nav">
-                        <button class="back-home-btn" type="button" onclick="closeMultiplayerRoom()">← Back to Dashboard</button>
-                        <span class="hero-kicker">Host Event</span>
-                    </div>
-                    <div>
-                        <h2 class="quiz-page-title">Host a Live Multiplayer Room</h2>
-                        <p class="quiz-page-subtitle">Configure room settings and launch an instant live quiz.</p>
-                    </div>
-                </div>
-
-                <div style="max-width: 520px; margin: 0 auto; text-align: left;">
-                    <div class="field-group">
-                        <label for="host-topic">Topic</label>
-                        <select id="host-topic">
-                            <option value="science">Science</option>
-                            <option value="history">History</option>
-                            <option value="geography">Geography</option>
-                            <option value="video games">Video Games</option>
-                            <option value="movies">Movies</option>
-                            <option value="misc">Miscellaneous</option>
-                        </select>
-                    </div>
-                    <div class="field-group">
-                        <label for="host-amount">Number of Questions</label>
-                        <select id="host-amount">
-                            <option value="5">5 Questions</option>
-                            <option value="10" selected>10 Questions</option>
-                            <option value="15">15 Questions</option>
-                            <option value="20">20 Questions</option>
-                        </select>
-                    </div>
-                    <div class="field-group">
-                        <label for="host-timer">Time Per Question</label>
-                        <select id="host-timer">
-                            <option value="15">15 Seconds</option>
-                            <option value="20" selected>20 Seconds</option>
-                            <option value="30">30 Seconds</option>
-                        </select>
-                    </div>
-                    <div style="display: flex; gap: 12px; margin-top: 24px;">
-                        <button type="button" class="auth-submit" onclick="submitCreateRoom()">🚀 Create Room Code</button>
-                        <button type="button" class="back-home-btn" onclick="closeMultiplayerRoom()">Cancel</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- JOIN ROOM FORM -->
-            <div id="room-join-form" class="room-card-shell" style="display:none;">
-                <div class="quiz-page-header" style="margin-bottom: 24px;">
-                    <div class="quiz-page-nav">
-                        <button class="back-home-btn" type="button" onclick="closeMultiplayerRoom()">← Back to Dashboard</button>
-                        <span class="hero-kicker">Join Room</span>
-                    </div>
-                    <div>
-                        <h2 class="quiz-page-title">Join Live Quiz with Code</h2>
-                        <p class="quiz-page-subtitle">Enter your 6-digit room code and nickname to join immediately.</p>
-                    </div>
-                </div>
-
-                <div style="max-width: 480px; margin: 0 auto; text-align: left;">
-                    <div class="field-group">
-                        <label for="join-code">6-Digit Room Code</label>
-                        <input id="join-code" type="text" placeholder="e.g. 582910" maxlength="6" style="font-size: 1.5rem; letter-spacing: 4px; text-align: center; font-weight: 700; font-family: monospace;">
-                    </div>
-                    <div class="field-group">
-                        <label for="join-nickname">Your Nickname</label>
-                        <input id="join-nickname" type="text" placeholder="e.g. Alex" maxlength="20">
-                    </div>
-                    <p id="join-error-msg" style="color: #ef4444; font-size: 0.85rem; font-weight: 600; display: none; margin-bottom: 12px;"></p>
-                    <div style="display: flex; gap: 12px; margin-top: 24px;">
-                        <button type="button" class="auth-submit" onclick="submitJoinRoom()">🎮 Join Room</button>
-                        <button type="button" class="back-home-btn" onclick="closeMultiplayerRoom()">Cancel</button>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Host Lobby View -->
-            <div id="room-host-lobby" class="room-card-shell" style="display:none;">
-                <div class="room-header">
-                    <span class="hero-kicker">Room Host Controls</span>
-                    <h2>Room Code: <span id="room-code-display" class="highlight-code">------</span></h2>
-                    <p>Share this 6-digit code with your players to join!</p>
-                </div>
-                <div class="lobby-player-counter">
-                    <span id="lobby-count-badge">0 Players Connected</span>
-                </div>
-                <div class="lobby-player-grid" id="lobby-player-list"></div>
-                <div style="margin-top: 24px;">
-                    <button type="button" class="auth-submit" id="start-room-btn" onclick="startHostRoomQuiz()">🚀 Start Live Quiz Now</button>
-                    <button type="button" class="back-home-btn" style="margin-top: 10px;" onclick="closeMultiplayerRoom()">Cancel Room</button>
-                </div>
-            </div>
-
-            <!-- Player Lobby Waiting View -->
-            <div id="room-player-waiting" class="room-card-shell" style="display:none;">
-                <div class="room-header">
-                    <span class="hero-kicker">Waiting for Host</span>
-                    <h2>Joined Room: <span id="player-room-code-display" class="highlight-code">------</span></h2>
-                    <p>You are in! Waiting for the host to start the game.</p>
-                </div>
-                <div class="lobby-player-counter">
-                    <span id="player-lobby-count-badge">0 Players in Lobby</span>
-                </div>
-                <div class="lobby-player-grid" id="player-waiting-list"></div>
-                <button type="button" class="back-home-btn" style="margin-top: 24px;" onclick="closeMultiplayerRoom()">Leave Room</button>
-            </div>
-
-            <!-- Live Question View -->
-            <div id="room-live-question" class="mp-live-question-shell" style="display:none;">
-                <div class="mp-live-nav">
-                    <button class="back-home-btn" type="button" onclick="closeMultiplayerRoom()">← Exit Room</button>
-                    <div class="mp-room-tag">
-                        <span class="mp-live-dot"></span>
-                        <span>LIVE MULTIPLAYER</span>
-                    </div>
-                </div>
-
-                <div class="mp-question-card">
-                    <div class="mp-question-header">
-                        <div class="mp-progress-wrapper">
-                            <span id="room-q-progress" class="mp-q-progress-text">Question 1 / 10</span>
-                            <div class="mp-progress-bar-bg">
-                                <div id="room-q-progress-bar" class="mp-progress-bar-fill" style="width: 10%;"></div>
-                            </div>
-                        </div>
-                        <div id="room-timer-badge" class="mp-timer-pill">20s</div>
-                    </div>
-
-                    <h2 id="room-question-text" class="mp-question-title">Question text goes here...</h2>
-                    <div id="room-options-container" class="mp-options-grid"></div>
-                    <div id="room-answer-status" class="mp-answer-status">Select your answer above!</div>
-                </div>
-            </div>
-
-            <!-- Intermission View -->
-            <div id="room-intermission" class="mp-live-question-shell" style="display:none;">
-                <div class="mp-intermission-card">
-                    <span class="hero-kicker">Round Ended</span>
-                    <h2 class="mp-intermission-title">Correct Answer: <span id="intermission-correct-ans" class="mp-correct-highlight">--</span></h2>
-                    <p id="intermission-explanation" class="mp-explanation-text"></p>
-                    <h3 class="mp-standings-heading">Top Standings</h3>
-                    <div id="room-standings-list" class="standings-list"></div>
-                    <div class="mp-next-loader">
-                        <span class="mp-spinner"></span> Next question starting shortly...
-                    </div>
-                </div>
-            </div>
-
-            <!-- Game Over View -->
-            <div id="room-game-over" class="mp-live-question-shell" style="display:none;">
-                <div class="mp-gameover-card">
-                    <span class="hero-kicker">Final Results</span>
-                    <h2 class="mp-gameover-title">🏆 Quiz Completed!</h2>
-                    <div id="podium-container" class="podium-grid"></div>
-                    <h3 class="mp-standings-heading">Full Ranking</h3>
-                    <div id="final-rankings-list" class="standings-list"></div>
-                    <button type="button" class="auth-submit" style="margin-top: 28px; width: 100%; max-width: 320px;" onclick="closeMultiplayerRoom()">Back to Dashboard</button>
-                </div>
-            </div>
-
-        </div>
-    </section>
-
     <div id="anti-cheat-overlay" class="anti-cheat-overlay" style="display:none;">
         <div class="anti-cheat-card">
             <h2>⚠️ Warning</h2>
@@ -451,6 +262,6 @@ window.onerror = function(msg, url, lineNo, columnNo, error) {
         </div>
     </div>
 
-    <script src="app.js?v=10"></script>
+    <script src="app.js?v=11"></script>
 </body>
 </html>

@@ -1,8 +1,6 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const http = require('http');
-const { Server } = require('socket.io');
 const compression = require('compression');
 const { GoogleGenAI } = require('@google/genai');
 const mongoose = require('mongoose');
@@ -43,15 +41,6 @@ function loadEnvFile() {
 loadEnvFile();
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server, {
-    cors: { origin: '*' },
-    // Performance tuning for 300+ concurrent players on limited resources
-    pingInterval: 60000,    // Ping every 60s instead of default 25s (reduces CPU overhead)
-    pingTimeout: 30000,     // 30s timeout (generous for slow connections)
-    maxHttpBufferSize: 1e5, // 100KB max message (quiz data is small)
-    transports: ['websocket'] // Skip HTTP long-polling entirely on server side too
-});
 
 const PORT = process.env.PORT || 3000;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
@@ -79,6 +68,9 @@ const requireAuth = (req, res, next) => {
     const token = authHeader.split(' ')[1];
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret');
+        if (!decoded.userId || !mongoose.Types.ObjectId.isValid(decoded.userId)) {
+            return res.status(401).json({ error: 'Session expired or invalid. Please re-login.' });
+        }
         req.user = decoded;
         next();
     } catch (err) {
@@ -87,26 +79,39 @@ const requireAuth = (req, res, next) => {
 };
 
 // --- Auth Routes ---
-
 const crypto = require('crypto');
-// Guest Login (Sub-millisecond auth for instant access & live rooms)
-app.post('/api/auth/guest', (req, res) => {
+
+// Guest Login (Creates a persistent Guest User in MongoDB)
+app.post('/api/auth/guest', async (req, res) => {
     try {
         const { name } = req.body || {};
         let guestName = (name && typeof name === 'string' && name.trim()) ? name.trim().slice(0, 20) : '';
         if (!guestName) {
-            guestName = 'Guest_' + crypto.randomInt(100000, 999999).toString();
+            guestName = 'Guest_' + crypto.randomInt(1000, 9999).toString();
         }
 
-        const guestId = 'guest_' + crypto.randomUUID();
+        const guestId = new mongoose.Types.ObjectId();
+        const guestEmail = `guest_${guestId.toString()}@quizwizz.local`;
+        const randomPass = crypto.randomBytes(16).toString('hex');
+        const hashedPassword = await bcrypt.hash(randomPass, 8);
+
+        const guestUser = new User({
+            _id: guestId,
+            name: guestName,
+            email: guestEmail,
+            password: hashedPassword
+        });
+        await guestUser.save();
+
         const token = jwt.sign(
-            { userId: guestId, email: null, name: guestName, isGuest: true },
+            { userId: guestUser._id, email: guestUser.email, name: guestUser.name, isGuest: true },
             process.env.JWT_SECRET || 'fallback_secret',
-            { expiresIn: '7d' }
+            { expiresIn: '30d' }
         );
 
-        res.json({ token, user: { name: guestName, isGuest: true } });
+        res.json({ token, user: { name: guestUser.name, email: guestUser.email, isGuest: true } });
     } catch (err) {
+        console.error('Guest login error:', err);
         res.status(500).json({ error: 'Guest login failed' });
     }
 });
@@ -126,6 +131,7 @@ app.post('/api/auth/register', async (req, res) => {
         const token = jwt.sign({ userId: user._id, email: user.email, name: user.name, isGuest: false }, process.env.JWT_SECRET || 'fallback_secret');
         res.json({ token, user: { name: user.name, email: user.email, isGuest: false } });
     } catch (err) {
+        console.error('Registration error:', err);
         res.status(500).json({ error: 'Registration failed' });
     }
 });
@@ -144,6 +150,7 @@ app.post('/api/auth/login', async (req, res) => {
         const token = jwt.sign({ userId: user._id, email: user.email, name: user.name, isGuest: false }, process.env.JWT_SECRET || 'fallback_secret');
         res.json({ token, user: { name: user.name, email: user.email, isGuest: false } });
     } catch (err) {
+        console.error('Login error:', err);
         res.status(500).json({ error: 'Login failed' });
     }
 });
@@ -151,53 +158,48 @@ app.post('/api/auth/login', async (req, res) => {
 // --- History Routes ---
 app.post('/api/history', requireAuth, async (req, res) => {
     try {
-        if (req.user.isGuest) {
-            return res.status(200).json({ message: 'Guest session complete (history not saved to DB)', isGuest: true });
-        }
         const attemptData = { ...req.body, userId: req.user.userId };
         const attempt = new QuizAttempt(attemptData);
         await attempt.save();
+        leaderboardCache = { data: null, timestamp: 0 };
         res.status(201).json(attempt);
     } catch (err) {
+        console.error('Save history error:', err);
         res.status(500).json({ error: 'Failed to save history' });
     }
 });
 
 app.get('/api/history', requireAuth, async (req, res) => {
     try {
-        if (req.user.isGuest) {
-            return res.json([]);
-        }
         const history = await QuizAttempt.find({ userId: req.user.userId }).sort({ createdAt: 1 });
         res.json(history);
     } catch (err) {
+        console.error('Fetch history error:', err);
         res.status(500).json({ error: 'Failed to fetch history' });
     }
 });
 
 app.delete('/api/history', requireAuth, async (req, res) => {
     try {
-        if (req.user.isGuest) {
-            return res.json({ message: 'Guest history cleared' });
-        }
         await QuizAttempt.deleteMany({ userId: req.user.userId });
+        leaderboardCache = { data: null, timestamp: 0 };
         res.json({ message: 'History cleared successfully' });
     } catch (err) {
+        console.error('Clear history error:', err);
         res.status(500).json({ error: 'Failed to clear history' });
     }
 });
 
 app.delete('/api/history/:id', requireAuth, async (req, res) => {
     try {
-        if (req.user.isGuest) {
-            return res.json({ message: 'Entry deleted' });
-        }
         const deletedAttempt = await QuizAttempt.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
         if (!deletedAttempt) {
             return res.status(404).json({ error: 'Attempt not found or not authorized' });
         }
+        leaderboardCache = { data: null, timestamp: 0 };
         res.json({ message: 'Entry deleted successfully' });
     } catch (err) {
+        console.error('Delete attempt error:', err);
         res.status(500).json({ error: 'Failed to delete entry' });
     }
 });
@@ -262,9 +264,6 @@ app.get('/api/leaderboard', async (req, res) => {
 // --- Saved Questions Routes ---
 app.post('/api/saved-questions', requireAuth, async (req, res) => {
     try {
-        if (req.user.isGuest) {
-            return res.status(400).json({ error: 'Please register an account to save questions across sessions.' });
-        }
         const { question, options, correctAnswer, explanation } = req.body;
         const saved = new SavedQuestion({
             userId: req.user.userId,
@@ -276,33 +275,30 @@ app.post('/api/saved-questions', requireAuth, async (req, res) => {
         await saved.save();
         res.status(201).json(saved);
     } catch (err) {
+        console.error('Save question error:', err);
         res.status(500).json({ error: 'Failed to save question' });
     }
 });
 
 app.get('/api/saved-questions', requireAuth, async (req, res) => {
     try {
-        if (req.user.isGuest) {
-            return res.json([]);
-        }
         const saved = await SavedQuestion.find({ userId: req.user.userId }).sort({ createdAt: -1 });
         res.json(saved);
     } catch (err) {
+        console.error('Fetch saved questions error:', err);
         res.status(500).json({ error: 'Failed to fetch saved questions' });
     }
 });
 
 app.delete('/api/saved-questions/:id', requireAuth, async (req, res) => {
     try {
-        if (req.user.isGuest) {
-            return res.json({ message: 'Deleted' });
-        }
         const deleted = await SavedQuestion.findOneAndDelete({ _id: req.params.id, userId: req.user.userId });
         if (!deleted) {
             return res.status(404).json({ error: 'Not found' });
         }
         res.json({ message: 'Deleted' });
     } catch (err) {
+        console.error('Delete saved question error:', err);
         res.status(500).json({ error: 'Failed to delete' });
     }
 });
@@ -492,439 +488,6 @@ app.post('/api/generate-summary', async (req, res) => {
     }
 });
 
-// ============================================================================
-// 🎮 REAL-TIME MULTIPLAYER ROOM ENGINE (IN-MEMORY SOCKET.IO)
-// High Concurrency: 0 Database Writes during live room play
-// ============================================================================
-
-// Map<roomCode, RoomObject>
-const activeRooms = new Map();
-const MAX_ROOM_PLAYERS = 400;
-
-function generateRoomCode() {
-    let code;
-    do {
-        code = Math.floor(100000 + Math.random() * 900000).toString();
-    } while (activeRooms.has(code));
-    return code;
-}
-
-function getLeaderboardList(room) {
-    const list = Array.from(room.players.values()).map(p => ({
-        name: p.name,
-        score: p.score,
-        streak: p.streak || 0
-    }));
-    list.sort((a, b) => b.score - a.score);
-    return list;
-}
-
-function emitPlayerQuestion(room, player) {
-    const qIndex = player.currentQuestionIndex || 0;
-
-    if (qIndex >= room.questions.length) {
-        player.completed = true;
-        emitRoomGameOver(room, player.socketId);
-        maybeEmitFinalRoomLeaderboard(room);
-        return;
-    }
-
-    const questionData = room.questions[qIndex];
-    player.questionStartTime = Date.now();
-    player.answered = false;
-    player.lastAnswer = null;
-
-    io.to(player.socketId).emit('question_start', {
-        questionIndex: qIndex,
-        totalQuestions: room.questions.length,
-        question: questionData.question,
-        options: questionData.options,
-        timePerQuestion: room.timePerQuestion,
-        startTime: player.questionStartTime
-    });
-}
-
-function emitRoomGameOver(room, targetSocketId = null) {
-    const finalLeaderboard = getLeaderboardList(room);
-    const payload = {
-        podium: finalLeaderboard.slice(0, 3),
-        leaderboard: finalLeaderboard
-    };
-
-    if (targetSocketId) {
-        io.to(targetSocketId).emit('room_game_over', payload);
-    } else {
-        io.to(room.code).emit('room_game_over', payload);
-    }
-}
-
-function maybeEmitFinalRoomLeaderboard(room) {
-    if (room.finalLeaderboardSent) return;
-
-    const players = Array.from(room.players.values());
-    if (players.length > 0 && players.every(p => p.completed)) {
-        room.finalLeaderboardSent = true;
-        room.status = 'ended';
-        emitRoomGameOver(room);
-
-        setTimeout(() => {
-            activeRooms.delete(room.code);
-        }, 600000);
-    }
-}
-
-io.on('connection', (socket) => {
-    // --- Host Creates Room ---
-    socket.on('create_room', ({ title, questions, timePerQuestion }) => {
-        try {
-            if (!Array.isArray(questions) || questions.length === 0) {
-                return socket.emit('room_error', { message: 'Invalid questions provided.' });
-            }
-
-            const roomCode = generateRoomCode();
-            const room = {
-                code: roomCode,
-                title: title || 'Live Quiz Room',
-                hostSocketId: socket.id,
-                questions,
-                timePerQuestion: Number(timePerQuestion) || 20,
-                status: 'lobby', // 'lobby' | 'playing' | 'ended'
-                currentQuestionIndex: 0,
-                players: new Map(), // socketId -> { socketId, name, score, streak, lastAnswer: null, answered: false }
-                questionTimer: null,
-                finalLeaderboardSent: false
-            };
-
-            const hostPlayer = {
-                socketId: socket.id,
-                name: 'Host 👑',
-                score: 0,
-                streak: 0,
-                answered: false,
-                lastAnswer: null,
-                currentQuestionIndex: 0,
-                completed: false,
-                questionStartTime: null
-            };
-            room.players.set(socket.id, hostPlayer);
-
-            activeRooms.set(roomCode, room);
-            socket.join(roomCode);
-            socket.roomCode = roomCode;
-            socket.isHost = true;
-
-            socket.emit('room_created', {
-                roomCode,
-                title: room.title,
-                totalQuestions: questions.length,
-                timePerQuestion: room.timePerQuestion
-            });
-
-            io.to(roomCode).emit('lobby_update', {
-                playerCount: room.players.size,
-                players: Array.from(room.players.values()).map(p => p.name)
-            });
-        } catch (err) {
-            socket.emit('room_error', { message: 'Failed to create room.' });
-        }
-    });
-
-    // --- Player Joins or Rejoins Room ---
-    socket.on('join_room', ({ roomCode, nickname }) => {
-        try {
-            const cleanCode = String(roomCode || '').replace(/\D/g, '').trim();
-            const room = activeRooms.get(cleanCode);
-
-            if (!room) {
-                return socket.emit('room_error', { message: 'Room not found. Check your 6-digit code.' });
-            }
-
-            const cleanName = String(nickname || '').trim().slice(0, 20) || 'Player_' + Math.floor(100 + Math.random() * 900);
-            const lowerName = cleanName.toLowerCase();
-
-            // Find if player was already in room (Reconnection scenario)
-            let existingPlayerKey = null;
-            let existingPlayer = null;
-
-            for (const [key, player] of room.players.entries()) {
-                if (player.name.toLowerCase() === lowerName) {
-                    existingPlayerKey = key;
-                    existingPlayer = player;
-                    break;
-                }
-            }
-
-            if (existingPlayer) {
-                // Reconnect existing player with preserved score!
-                if (existingPlayerKey !== socket.id) {
-                    room.players.delete(existingPlayerKey);
-                }
-                existingPlayer.socketId = socket.id;
-                room.players.set(socket.id, existingPlayer);
-
-                socket.join(cleanCode);
-                socket.roomCode = cleanCode;
-                socket.isHost = false;
-
-                socket.emit('room_joined', {
-                    roomCode: cleanCode,
-                    title: room.title,
-                    nickname: existingPlayer.name,
-                    playerCount: room.players.size,
-                    isReconnect: true
-                });
-
-                if (room.status === 'playing') {
-                    emitPlayerQuestion(room, existingPlayer);
-                } else if (room.status === 'ended') {
-                    emitRoomGameOver(room, socket.id);
-                }
-                return;
-            }
-
-            if (room.status !== 'lobby') {
-                return socket.emit('room_error', { message: 'This quiz room has already started.' });
-            }
-
-            if (room.players.size >= MAX_ROOM_PLAYERS) {
-                return socket.emit('room_error', { message: 'This room is full. Maximum capacity is 400 players.' });
-            }
-
-            const player = {
-                socketId: socket.id,
-                name: cleanName,
-                score: 0,
-                streak: 0,
-                answered: false,
-                lastAnswer: null,
-                currentQuestionIndex: 0,
-                completed: false,
-                questionStartTime: null
-            };
-
-            room.players.set(socket.id, player);
-            socket.join(cleanCode);
-            socket.roomCode = cleanCode;
-            socket.isHost = false;
-
-            const playerList = Array.from(room.players.values()).map(p => p.name);
-
-            // Confirm join to player
-            socket.emit('room_joined', {
-                roomCode: cleanCode,
-                title: room.title,
-                nickname: cleanName,
-                playerCount: room.players.size
-            });
-
-            // Notify host and room lobby of updated player list
-            io.to(cleanCode).emit('lobby_update', {
-                playerCount: room.players.size,
-                players: playerList
-            });
-        } catch (err) {
-            socket.emit('room_error', { message: 'Failed to join room.' });
-        }
-    });
-
-    socket.on('leave_room', () => {
-        const roomCode = socket.roomCode;
-        if (!roomCode) return;
-
-        const room = activeRooms.get(roomCode);
-        if (!room) {
-            socket.roomCode = null;
-            socket.isHost = false;
-            return;
-        }
-
-        socket.leave(roomCode);
-
-        if (socket.isHost) {
-            if (room.questionTimer) clearTimeout(room.questionTimer);
-            io.to(roomCode).emit('room_error', { message: 'Host closed the room.' });
-            activeRooms.delete(roomCode);
-        } else {
-            if (room.status === 'lobby') {
-                room.players.delete(socket.id);
-            }
-            io.to(roomCode).emit('lobby_update', {
-                playerCount: room.players.size,
-                players: Array.from(room.players.values()).map(p => p.name)
-            });
-        }
-
-        socket.roomCode = null;
-        socket.isHost = false;
-    });
-
-    // --- Host Starts Quiz ---
-    socket.on('start_room_quiz', () => {
-        const roomCode = socket.roomCode;
-        if (!roomCode || !socket.isHost) return;
-
-        const room = activeRooms.get(roomCode);
-        if (!room || room.status !== 'lobby') return;
-
-        room.status = 'playing';
-        room.currentQuestionIndex = 0;
-
-        startQuestionRound(room);
-    });
-
-    function startQuestionRound(room) {
-        if (!room || room.status === 'ended') return;
-
-        room.status = 'playing';
-
-        for (const player of room.players.values()) {
-            player.currentQuestionIndex = 0;
-            player.completed = false;
-            player.answered = false;
-            player.lastAnswer = null;
-            emitPlayerQuestion(room, player);
-        }
-
-        if (room.questionTimer) clearTimeout(room.questionTimer);
-    }
-
-    // --- Player Submits Answer ---
-    socket.on('submit_room_answer', ({ selectedOption, answerTimeSeconds }) => {
-        const roomCode = socket.roomCode;
-        if (!roomCode) return;
-
-        const room = activeRooms.get(roomCode);
-        if (!room || room.status !== 'playing') return;
-
-        const player = room.players.get(socket.id);
-        if (!player || player.answered || player.completed) return;
-
-        player.answered = true;
-        player.lastAnswer = selectedOption;
-
-        const currentIndex = player.currentQuestionIndex || 0;
-        const currentQ = room.questions[currentIndex];
-        if (!currentQ) {
-            player.completed = true;
-            emitRoomGameOver(room, socket.id);
-            maybeEmitFinalRoomLeaderboard(room);
-            return;
-        }
-
-        const isCorrect = String(selectedOption).trim().toLowerCase() === String(currentQ.correctAnswer).trim().toLowerCase();
-
-        if (isCorrect) {
-            // Speed bonus (max 1000 pts for instant answer down to 500 pts at end of timer)
-            const elapsedSeconds = Number(answerTimeSeconds);
-            const fallbackElapsed = player.questionStartTime ? (Date.now() - player.questionStartTime) / 1000 : room.timePerQuestion;
-            const safeElapsed = Number.isFinite(elapsedSeconds) ? elapsedSeconds : fallbackElapsed;
-            const remainingRatio = Math.max(0, 1 - (safeElapsed / room.timePerQuestion));
-            const points = Math.round(500 + (500 * remainingRatio));
-            player.score += points;
-            player.streak += 1;
-        } else {
-            player.streak = 0;
-        }
-
-        player.currentQuestionIndex = currentIndex + 1;
-
-        let completedCount = 0;
-        for (const p of room.players.values()) {
-            if (p.completed || (p.currentQuestionIndex || 0) >= room.questions.length) completedCount++;
-        }
-
-        io.to(room.hostSocketId).emit('answer_stats', {
-            answeredCount: completedCount,
-            totalPlayers: room.players.size,
-            leaderboard: getLeaderboardList(room).slice(0, 10)
-        });
-
-        emitPlayerQuestion(room, player);
-    });
-
-    socket.on('skip_question_timer', () => {
-        const roomCode = socket.roomCode;
-        if (!roomCode || !socket.isHost) return;
-        const room = activeRooms.get(roomCode);
-        if (!room || room.status !== 'playing') return;
-        if (room.questionTimer) clearTimeout(room.questionTimer);
-        finishQuestionRound(room);
-    });
-
-    function finishQuestionRound(room) {
-        if (!room || room.status === 'question_ended' || room.status === 'ended') return;
-        room.status = 'question_ended';
-
-        const currentQ = room.questions[room.currentQuestionIndex];
-        const leaderboards = getLeaderboardList(room);
-
-        io.to(room.code).emit('question_ended', {
-            questionIndex: room.currentQuestionIndex,
-            correctAnswer: currentQ.correctAnswer,
-            explanation: currentQ.explanation || '',
-            leaderboard: leaderboards.slice(0, 10)
-        });
-
-        // Auto-advance to next question fast (1.8 seconds)
-        if (room.questionTimer) clearTimeout(room.questionTimer);
-        room.questionTimer = setTimeout(() => {
-            room.currentQuestionIndex += 1;
-            startQuestionRound(room);
-        }, 1800);
-    }
-
-    socket.on('skip_question', () => {
-        const roomCode = socket.roomCode;
-        if (!roomCode || !socket.isHost) return;
-        const room = activeRooms.get(roomCode);
-        if (!room) return;
-        if (room.questionTimer) clearTimeout(room.questionTimer);
-        finishQuestionRound(room);
-    });
-
-    function endRoomQuiz(room) {
-        if (!room) return;
-        room.status = 'ended';
-
-        const finalLeaderboard = getLeaderboardList(room);
-
-        io.to(room.code).emit('room_game_over', {
-            podium: finalLeaderboard.slice(0, 3),
-            leaderboard: finalLeaderboard
-        });
-
-        // Clean up room after 10 minutes
-        setTimeout(() => {
-            activeRooms.delete(room.code);
-        }, 600000);
-    }
-
-    // --- Disconnect handling ---
-    socket.on('disconnect', () => {
-        const roomCode = socket.roomCode;
-        if (!roomCode) return;
-
-        const room = activeRooms.get(roomCode);
-        if (!room) return;
-
-        if (socket.isHost) {
-            // If host disconnects, inform players and destroy room
-            io.to(roomCode).emit('room_error', { message: 'Host disconnected. Room closed.' });
-            activeRooms.delete(roomCode);
-        } else {
-            // Only remove from room if still in lobby.
-            // If game is in progress, keep score intact so re-joining with same nickname preserves progress!
-            if (room.status === 'lobby') {
-                room.players.delete(socket.id);
-            }
-            io.to(roomCode).emit('lobby_update', {
-                playerCount: room.players.size,
-                players: Array.from(room.players.values()).map(p => p.name)
-            });
-        }
-    });
-});
-
-server.listen(PORT, () => {
+app.listen(PORT, () => {
     console.log(`AI Quiz app running at http://localhost:${PORT}`);
 });
