@@ -33,15 +33,27 @@
             return document.getElementById('quiz-source').value;
         }
 
+        let selectedPdfFile = null;
+
         function updateQuizSourceUI() {
             const source = getQuizSource();
             const customTopicField = document.getElementById('custom-topic-field');
-            const categoryField = document.getElementById('category');
-            const difficultyField = document.getElementById('difficulty');
+            const categoryFieldGroup = document.getElementById('category-field-group');
+            const pdfUploadField = document.getElementById('pdf-upload-field');
 
-            customTopicField.style.display = source === 'gemini' ? 'grid' : 'none';
-            categoryField.disabled = false;
-            difficultyField.disabled = false;
+            if (source === 'pdf') {
+                if (pdfUploadField) pdfUploadField.style.display = 'grid';
+                if (categoryFieldGroup) categoryFieldGroup.style.display = 'none';
+                if (customTopicField) customTopicField.style.display = 'none';
+            } else if (source === 'gemini') {
+                if (pdfUploadField) pdfUploadField.style.display = 'none';
+                if (categoryFieldGroup) categoryFieldGroup.style.display = 'grid';
+                if (customTopicField) customTopicField.style.display = 'grid';
+            } else {
+                if (pdfUploadField) pdfUploadField.style.display = 'none';
+                if (categoryFieldGroup) categoryFieldGroup.style.display = 'grid';
+                if (customTopicField) customTopicField.style.display = 'none';
+            }
         }
 
         const TOKEN_STORAGE_KEY = 'quiz_auth_token';
@@ -283,6 +295,22 @@
             const attempts = history.length;
             renderTrendChart(history);
 
+            // Compute KPI Dashboard stats
+            const totalQuizzes = history.length;
+            const totalQuestions = history.reduce((sum, h) => sum + (h.totalQuestions || 0), 0);
+            const avgPercentage = totalQuizzes === 0 ? 0 : Math.round(history.reduce((sum, h) => sum + (h.percentage || 0), 0) / totalQuizzes);
+            const highPercentage = totalQuizzes === 0 ? 0 : Math.max(...history.map(h => h.percentage || 0));
+
+            const statTotalQuizzes = document.getElementById('stat-total-quizzes');
+            const statAvgScore = document.getElementById('stat-avg-score');
+            const statHighScore = document.getElementById('stat-high-score');
+            const statTotalQuestions = document.getElementById('stat-total-questions');
+
+            if (statTotalQuizzes) statTotalQuizzes.textContent = totalQuizzes;
+            if (statAvgScore) statAvgScore.textContent = `${avgPercentage}%`;
+            if (statHighScore) statHighScore.textContent = `${highPercentage}%`;
+            if (statTotalQuestions) statTotalQuestions.textContent = totalQuestions;
+
             const topicStats = history.reduce((acc, entry) => {
                 if (!acc[entry.categoryLabel]) acc[entry.categoryLabel] = { total: 0, count: 0 };
                 acc[entry.categoryLabel].total += entry.percentage;
@@ -296,13 +324,15 @@
                 count: stats.count
             })).sort((a, b) => b.avg - a.avg);
 
+            const chartContainer = document.getElementById('chart-container');
             if (!attempts) {
                 historyList.innerHTML = '<div class="history-empty">No quiz attempts yet. Finish a quiz and your history will appear here.</div>';
                 if(topicStrengthList) topicStrengthList.innerHTML = '<li>Take more quizzes to see your strengths!</li>';
                 if(revisionList) revisionList.innerHTML = '<li>Take more quizzes to get recommendations!</li>';
-                const chartContainer = document.getElementById('chart-container');
                 if (chartContainer) chartContainer.style.display = 'none';
                 return;
+            } else {
+                if (chartContainer) chartContainer.style.display = 'block';
             }
 
             if (topicStrengthList && revisionList) {
@@ -680,25 +710,49 @@
             document.getElementById('progress-text').style.display = 'block';
             updateProgressBar(0, questions.length);
 
+            const optionLetters = ['A', 'B', 'C', 'D'];
+
             questions.forEach((q, index) => {
                 const card = document.createElement('div');
                 card.className = 'question-card';
                 card.id = `card-${index}`;
 
-                let html = `<h3>${index + 1}. ${q.question}</h3>`;
+                let html = `
+                    <div class="question-card-head">
+                        <span class="question-num-badge">Question ${index + 1} of ${questions.length}</span>
+                        <span class="question-diff-badge ${q.difficulty}">${String(q.difficulty).toUpperCase()}</span>
+                    </div>
+                    <h3 class="question-title">${escapeHtml(q.question)}</h3>
+                    <div class="options-grid">
+                `;
 
-                q.options.forEach((opt) => {
+                q.options.forEach((opt, optIdx) => {
                     let optionClass = 'option';
                     if (q.difficulty === 'true/false') {
                         optionClass += ' tf-option';
                     }
+                    const badgeText = q.difficulty === 'true/false'
+                        ? (opt === 'True' ? '✓' : '✗')
+                        : (optionLetters[optIdx] || (optIdx + 1));
 
-                    html += `<label class="${optionClass}"><input type="radio" name="question${index}" value="${opt}"> ${opt}</label>`;
+                    html += `
+                        <label class="${optionClass}">
+                            <input type="radio" name="question${index}" value="${escapeHtml(opt)}">
+                            <span class="opt-badge">${badgeText}</span>
+                            <span class="opt-text">${escapeHtml(opt)}</span>
+                        </label>
+                    `;
                 });
 
+                html += `</div>`;
                 card.innerHTML = html;
+
                 card.querySelectorAll('input[type="radio"]').forEach((radio) => {
                     radio.addEventListener('change', () => {
+                        card.querySelectorAll('.option').forEach(l => l.classList.remove('selected-active'));
+                        const parentLabel = radio.closest('.option');
+                        if (parentLabel) parentLabel.classList.add('selected-active');
+
                         const answered = document.querySelectorAll('input[type="radio"]:checked').length;
                         updateProgressBar(answered, currentQuizData.length);
                     });
@@ -847,7 +901,8 @@
             timeRemaining = totalSeconds;
 
             const timerDisplay = document.getElementById('timer-display');
-            timerDisplay.style.display = 'block';
+            timerDisplay.style.display = 'inline-flex';
+            timerDisplay.classList.remove('timer-warning', 'timer-danger');
 
             timerInterval = setInterval(() => {
                 timeRemaining--;
@@ -856,16 +911,21 @@
                 const seconds = timeRemaining % 60;
                 const formattedSeconds = seconds < 10 ? '0' + seconds : seconds;
 
-                timerDisplay.textContent = `Time Left: ${minutes}:${formattedSeconds}`;
+                timerDisplay.textContent = `⏱️ ${minutes}:${formattedSeconds}`;
 
-                if (timeRemaining <= 10 && timeRemaining > 0) {
-                    timerDisplay.style.opacity = timeRemaining % 2 === 0 ? '0.5' : '1';
+                if (timeRemaining <= 15 && timeRemaining > 5) {
+                    timerDisplay.classList.add('timer-warning');
+                    timerDisplay.classList.remove('timer-danger');
+                } else if (timeRemaining <= 5 && timeRemaining > 0) {
+                    timerDisplay.classList.remove('timer-warning');
+                    timerDisplay.classList.add('timer-danger');
+                } else if (timeRemaining > 15) {
+                    timerDisplay.classList.remove('timer-warning', 'timer-danger');
                 }
 
                 if (timeRemaining <= 0) {
                     clearInterval(timerInterval);
-                    timerDisplay.textContent = "Time's up!";
-                    timerDisplay.style.opacity = '1';
+                    timerDisplay.textContent = "⏱️ Time's up!";
                     calculateScore();
                 }
             }, 1000);
@@ -901,6 +961,31 @@
             window.scrollTo(0, 0);
         }
 
+        async function getGeminiPdfQuestions(pdfFile, amount, type, difficulty) {
+            const formData = new FormData();
+            formData.append('pdf', pdfFile);
+            formData.append('amount', amount);
+            formData.append('type', type);
+            formData.append('difficulty', difficulty);
+
+            const token = getAuthToken();
+            const headers = {};
+            if (token) headers['Authorization'] = `Bearer ${token}`;
+
+            const response = await fetch('/api/generate-quiz-pdf', {
+                method: 'POST',
+                headers,
+                body: formData
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to generate questions from PDF.');
+            }
+
+            return normalizeGeneratedQuestions(data.questions, type);
+        }
+
         async function fetchSummary() {
             if (!getSession()) {
                 alert('Please login before generating a summary.');
@@ -908,15 +993,50 @@
             }
 
             const source = getQuizSource();
-            let url = '/api/generate-summary';
-            let options = { method: 'POST' };
-
-            const summaryBtn = document.querySelector('button[onclick="fetchSummary()"]');
-            const originalButtonText = summaryBtn.textContent;
-            summaryBtn.textContent = 'Generating...';
-            summaryBtn.disabled = true;
+            const summaryBtn = document.querySelector('.btn-summary');
+            const originalButtonText = summaryBtn ? summaryBtn.textContent : '✨ Study Notes';
+            if (summaryBtn) {
+                summaryBtn.textContent = 'Generating...';
+                summaryBtn.disabled = true;
+            }
 
             try {
+                if (source === 'pdf') {
+                    if (!selectedPdfFile) {
+                        alert('Please upload or select a PDF document first.');
+                        return;
+                    }
+
+                    const formData = new FormData();
+                    formData.append('pdf', selectedPdfFile);
+                    const token = getAuthToken();
+                    const headers = {};
+                    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+                    const response = await fetch('/api/generate-summary-pdf', {
+                        method: 'POST',
+                        headers,
+                        body: formData
+                    });
+                    const data = await response.text();
+                    if (!response.ok) {
+                        try {
+                            const jsonData = JSON.parse(data);
+                            throw new Error(jsonData.error || 'Failed to generate summary from PDF.');
+                        } catch (e) {
+                            throw new Error('Failed to generate summary from PDF.');
+                        }
+                    }
+
+                    document.getElementById('summary-content').innerHTML = data;
+                    document.body.classList.add('summary-active');
+                    window.scrollTo(0, 0);
+                    return;
+                }
+
+                let url = '/api/generate-summary';
+                let options = { method: 'POST' };
+
                 const category = document.getElementById('category').value;
                 const customTopic = document.getElementById('custom-topic').value;
                 let topic = source === 'gemini' ? (customTopic || 'general knowledge') : category;
@@ -941,8 +1061,10 @@
             } catch (error) {
                 alert(error.message);
             } finally {
-                summaryBtn.textContent = originalButtonText;
-                summaryBtn.disabled = false;
+                if (summaryBtn) {
+                    summaryBtn.textContent = originalButtonText;
+                    summaryBtn.disabled = false;
+                }
             }
         }
 
@@ -968,7 +1090,14 @@
                 : document.getElementById('difficulty').selectedOptions[0].textContent;
             let topic, topicLabel;
 
-            if (source === 'gemini' && customTopic) {
+            if (source === 'pdf') {
+                if (!selectedPdfFile) {
+                    alert('Please select or upload a PDF document first.');
+                    return;
+                }
+                topic = `PDF: ${selectedPdfFile.name}`;
+                topicLabel = `📄 ${selectedPdfFile.name}`;
+            } else if (source === 'gemini' && customTopic) {
                 topic = customTopic;
                 topicLabel = customTopic;
             } else {
@@ -993,7 +1122,13 @@
             try {
                 let questions = [];
 
-                if (source === 'gemini') {
+                if (source === 'pdf') {
+                    const loadingText = document.getElementById('loading-text');
+                    if (loadingText) loadingText.textContent = `Analyzing ${selectedPdfFile.name} & generating questions...`;
+                    questions = await getGeminiPdfQuestions(selectedPdfFile, amount, type, difficulty);
+                } else if (source === 'gemini') {
+                    const loadingText = document.getElementById('loading-text');
+                    if (loadingText) loadingText.textContent = 'Generating questions with Gemini AI...';
                     questions = await getGeminiQuestions(topic, amount, type, difficulty);
                 } else {
                     questions = getLocalQuestions(category, amount, type, difficulty);
@@ -1084,14 +1219,32 @@
                 });
             });
 
-            resultsDiv.style.background = 'var(--card-bg)';
-            resultsDiv.style.padding = '20px';
-            resultsDiv.style.borderRadius = '12px';
-            resultsDiv.style.boxShadow = '0 4px 6px rgba(0,0,0,0.05)';
+            const pct = Math.round((score / currentQuizData.length) * 100);
+            let gradeBadge = '🎯 Solid Effort!';
+            let gradeColor = 'var(--primary)';
+            if (pct >= 90) {
+                gradeBadge = '🏆 Quiz Champion!';
+                gradeColor = 'var(--correct)';
+            } else if (pct >= 70) {
+                gradeBadge = '🌟 Great Performance!';
+                gradeColor = 'var(--accent)';
+            } else if (pct >= 50) {
+                gradeBadge = '👍 Good Practice!';
+                gradeColor = '#f59e0b';
+            } else {
+                gradeBadge = '💪 Keep Practicing!';
+                gradeColor = 'var(--wrong)';
+            }
+
             resultsDiv.innerHTML = `
-                You scored ${score} out of ${currentQuizData.length}! (${Math.round((score / currentQuizData.length) * 100)}%)
-                <div style="margin-top: 14px;">
-                    <button type="button" id="review-wrong-btn">Review Answers</button>
+                <div class="results-header">
+                    <div class="results-badge" style="color: ${gradeColor};">${gradeBadge}</div>
+                    <div class="results-score-big">${pct}%</div>
+                    <p class="results-subtitle">You scored <strong>${score}</strong> out of <strong>${currentQuizData.length}</strong> questions correctly.</p>
+                </div>
+                <div class="results-actions">
+                    <button type="button" id="review-wrong-btn" class="btn-review-answers">📖 Review Answers</button>
+                    <button type="button" class="btn-back-dash" onclick="closeQuizPage()">🏠 Back to Dashboard</button>
                 </div>
             `;
 
@@ -1284,28 +1437,36 @@
         let currentTheme = localStorage.getItem('theme') || 'light';
         if (currentTheme === 'dark') {
             document.body.classList.add('dark-theme');
-            themeToggleBtn.textContent = 'Light';
-            themeToggleBtn.setAttribute('aria-label', 'Switch to light mode');
-        }
-
-        themeToggleBtn.addEventListener('click', () => {
-            // If extreme theme is active, don't toggle to dark mode
-            if (document.body.classList.contains('extreme-theme')) {
-                alert('Dark mode toggle is disabled in Extreme mode.');
-                return;
-            }
-            if (document.body.classList.contains('dark-theme')) {
-                document.body.classList.remove('dark-theme');
-                localStorage.setItem('theme', 'light');
-                themeToggleBtn.textContent = 'Dark';
-                themeToggleBtn.setAttribute('aria-label', 'Switch to dark mode');
-            } else {
-                document.body.classList.add('dark-theme');
-                localStorage.setItem('theme', 'dark');
-                themeToggleBtn.textContent = 'Light';
+            if (themeToggleBtn) {
+                themeToggleBtn.textContent = '☀️ Light';
                 themeToggleBtn.setAttribute('aria-label', 'Switch to light mode');
             }
-        });
+        } else {
+            if (themeToggleBtn) {
+                themeToggleBtn.textContent = '🌙 Dark';
+                themeToggleBtn.setAttribute('aria-label', 'Switch to dark mode');
+            }
+        }
+
+        if (themeToggleBtn) {
+            themeToggleBtn.addEventListener('click', () => {
+                if (document.body.classList.contains('extreme-theme')) {
+                    alert('Dark mode toggle is disabled in Extreme mode.');
+                    return;
+                }
+                if (document.body.classList.contains('dark-theme')) {
+                    document.body.classList.remove('dark-theme');
+                    localStorage.setItem('theme', 'light');
+                    themeToggleBtn.textContent = '🌙 Dark';
+                    themeToggleBtn.setAttribute('aria-label', 'Switch to dark mode');
+                } else {
+                    document.body.classList.add('dark-theme');
+                    localStorage.setItem('theme', 'dark');
+                    themeToggleBtn.textContent = '☀️ Light';
+                    themeToggleBtn.setAttribute('aria-label', 'Switch to light mode');
+                }
+            });
+        }
 
         document.getElementById('clear-history-btn').addEventListener('click', async () => {
             if (!confirm('Are you sure you want to clear all your quiz history? This cannot be undone.')) return;
@@ -1330,7 +1491,61 @@
             }
         });
 
+        function setupPdfUploader() {
+            const fileInput = document.getElementById('pdf-file-input');
+            const dropzone = document.getElementById('pdf-dropzone');
+            const trigger = document.getElementById('pdf-dropzone-trigger');
+            const fileNameElem = document.getElementById('pdf-file-name');
+            const fileSizeElem = document.getElementById('pdf-file-size');
+
+            if (!fileInput || !dropzone) return;
+
+            if (trigger) {
+                trigger.addEventListener('click', () => fileInput.click());
+            }
+
+            function handleFile(file) {
+                if (!file) return;
+                if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+                    alert('Please select a valid PDF file.');
+                    return;
+                }
+                if (file.size > 10 * 1024 * 1024) {
+                    alert('PDF file size must be under 10MB.');
+                    return;
+                }
+                selectedPdfFile = file;
+                const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
+                if (fileNameElem) fileNameElem.textContent = `📄 ${file.name}`;
+                if (fileSizeElem) fileSizeElem.textContent = `${sizeMb} MB • Ready to generate questions`;
+                dropzone.classList.add('has-file');
+            }
+
+            fileInput.addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                handleFile(file);
+            });
+
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.classList.add('drag-over');
+            });
+
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.classList.remove('drag-over');
+            });
+
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('drag-over');
+                if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+                    handleFile(e.dataTransfer.files[0]);
+                }
+            });
+        }
+
         setAuthMode('login');
+        setupPdfUploader();
         updateQuizSourceUI();
         updateAuthUI();
 

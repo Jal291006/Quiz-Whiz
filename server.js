@@ -488,6 +488,176 @@ app.post('/api/generate-summary', async (req, res) => {
     }
 });
 
+// --- PDF Upload & Generation Engine ---
+const multer = require('multer');
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only PDF files are supported.'));
+        }
+    }
+});
+
+async function extractTextFromPDF(buffer) {
+    try {
+        const { PDFParse } = require('pdf-parse');
+        if (PDFParse) {
+            const parser = new PDFParse({ data: buffer });
+            const result = await parser.getText();
+            await parser.destroy().catch(() => {});
+            if (result && typeof result.text === 'string') {
+                return result.text;
+            }
+            if (typeof result === 'string') {
+                return result;
+            }
+        }
+        const pdf = require('pdf-parse');
+        if (typeof pdf === 'function') {
+            const data = await pdf(buffer);
+            return data.text;
+        }
+        throw new Error('PDF parser could not extract text.');
+    } catch (err) {
+        console.error('PDF text extraction error:', err);
+        throw new Error('Failed to extract text from PDF: ' + (err.message || 'Invalid or encrypted PDF'));
+    }
+}
+
+function createPdfQuizPrompt({ textContent, amount, type, difficulty, filename }) {
+    const normalizedType = type === 'true or false' ? 'true/false' : 'multiple-choice';
+
+    return `
+You are an expert educator and exam creator. Generate exactly ${amount} high-quality quiz questions strictly based on the following document content (Source file: "${filename || 'Document'}").
+
+Document Text:
+"""
+${textContent}
+"""
+
+Rules:
+- Question type: ${normalizedType}
+- Difficulty: ${difficulty}
+- Ensure every question tests key concepts, facts, or ideas found directly in the document.
+- Return ONLY valid JSON matching the schema below, without markdown code fences.
+- For true/false questions, options must be exactly ["True", "False"].
+- For multiple-choice questions, provide exactly 4 options.
+- The correctAnswer must match one of the options exactly.
+- Include a short, helpful explanation referencing the document for each question.
+
+Return JSON in this shape:
+{
+  "questions": [
+    {
+      "question": "string",
+      "options": ["string"],
+      "correctAnswer": "string",
+      "explanation": "string",
+      "difficulty": "easy|medium|hard|extreme|true/false"
+    }
+  ]
+}`.trim();
+}
+
+function createPdfSummaryPrompt({ textContent, filename }) {
+    return `Generate a comprehensive study notes summary based on the following document: "${filename || 'Document'}".
+Document Text:
+"""
+${textContent}
+"""
+Output must be formatted in clean, valid HTML tags (do NOT wrap in markdown code blocks, return HTML directly).
+Include the following structured sections:
+1. Document Overview & Core Theme
+2. Key Concepts & Definitions
+3. Important Takeaways & Rules
+4. Summary & Study Highlights
+Use <h2>, <h3>, <ul>, <li>, <p>, and <strong> tags to make it visually readable.`;
+}
+
+app.post('/api/generate-quiz-pdf', upload.single('pdf'), async (req, res) => {
+    try {
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({ error: 'Missing GEMINI_API_KEY. Add it to .env.' });
+        }
+
+        if (!req.file || !req.file.buffer) {
+            return res.status(400).json({ error: 'Please select a PDF file to upload.' });
+        }
+
+        const { amount, type, difficulty } = req.body || {};
+        const parsedAmount = Number(amount) || 5;
+        const normalizedDifficulty = type === 'true or false' ? 'true/false' : (difficulty || 'medium');
+        const normalizedType = type === 'true or false' ? 'true or false' : 'multiple-choice';
+
+        const extractedText = await extractTextFromPDF(req.file.buffer);
+        if (!extractedText || extractedText.trim().length < 30) {
+            return res.status(400).json({
+                error: 'Could not extract sufficient text from this PDF. It may be scanned or image-only.'
+            });
+        }
+
+        const truncatedText = extractedText.trim().slice(0, 25000);
+
+        const prompt = createPdfQuizPrompt({
+            textContent: truncatedText,
+            amount: parsedAmount,
+            type: normalizedType,
+            difficulty: normalizedDifficulty,
+            filename: req.file.originalname
+        });
+
+        const response = await callGemini(apiKey, prompt);
+        const parsed = JSON.parse(response.text);
+        const questions = validateGeneratedQuestions(parsed.questions, normalizedType, parsedAmount);
+
+        return res.json({ questions, filename: req.file.originalname });
+    } catch (error) {
+        console.error('PDF quiz generation failed:', error);
+        return res.status(500).json({
+            error: error.message || 'Unable to generate questions from this PDF.'
+        });
+    }
+});
+
+app.post('/api/generate-summary-pdf', upload.single('pdf'), async (req, res) => {
+    try {
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            return res.status(500).json({ error: 'Missing GEMINI_API_KEY.' });
+        }
+
+        if (!req.file || !req.file.buffer) {
+            return res.status(400).json({ error: 'Please select a PDF file to upload.' });
+        }
+
+        const extractedText = await extractTextFromPDF(req.file.buffer);
+        if (!extractedText || extractedText.trim().length < 30) {
+            return res.status(400).json({
+                error: 'Could not extract sufficient text from this PDF. It may be scanned or image-only.'
+            });
+        }
+
+        const truncatedText = extractedText.trim().slice(0, 25000);
+        const prompt = createPdfSummaryPrompt({
+            textContent: truncatedText,
+            filename: req.file.originalname
+        });
+
+        const response = await callGemini(apiKey, prompt, 'text/plain');
+        return res.send(response.text);
+    } catch (error) {
+        console.error('PDF summary generation failed:', error);
+        return res.status(500).json({
+            error: error.message || 'Unable to generate notes from this PDF.'
+        });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`AI Quiz app running at http://localhost:${PORT}`);
 });
